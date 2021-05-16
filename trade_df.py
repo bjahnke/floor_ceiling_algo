@@ -16,6 +16,7 @@ import back_test_utils as btu
 import tdargs
 import pandas as pd
 import typing as t
+import matplotlib.pyplot as plt
 
 class DfMetaData(abc.ABC):
     """
@@ -42,6 +43,10 @@ class PriceMdf:
     is stored as dataframe attribute. Input args are stored as attributes
     to provide some meta data about the Data Frame.
     """
+    prefix: str
+    data: pd.DataFrame
+    FREQ_RANGE: tdargs.FreqRangeArgs
+
     def __init__(
         self,
         symbol: str,
@@ -272,6 +277,16 @@ def position_size(
     stop_loss_col: str,
 
 ):
+    """
+
+    :param equity: total value of account
+    :param data:
+    :param constant_risk:
+    :param constant_weight:
+    :param signal_col:
+    :param stop_loss_col:
+    :return:
+    """
     # K = 1000000
     # constant_risk = 0.25 / 100
     # constant_weight = 3 / 100
@@ -303,14 +318,12 @@ def position_size(
     equal_weight_lot = 0
 
     for i in range(len(data)):
+        # abs because sign of eqty_risk_lot determines long short? TODO but why not abs the risk lot instead?
+        EAR_calc = data['equity_at_risk'].iat[i-1] + close_1d.iat[i] * eqty_risk_lot * abs(position.iat[i])
+        data['equity_at_risk'].iat[i] = EAR_calc
 
-        data['equity_at_risk'].iat[i] = (
-            data['equity_at_risk'].iat[i-1] + close_1d.iat[i] * eqty_risk_lot * abs(position.iat[i])
-        )
-
-        data['equal_weight'].iat[i] = (
-            data['equal_weight'].iat[i-1] + close_1d.iat[i] * equal_weight_lot * position.iat[i]
-        )
+        EW_calc = data['equal_weight'].iat[i-1] + close_1d.iat[i] * equal_weight_lot * position.iat[i]
+        data['equal_weight'].iat[i] = EW_calc
 
         if (signal.iat[i-1] == 0) & (signal.iat[i] != 0):
             eqty_risk_lot = btu.round_lot(
@@ -351,5 +364,18 @@ if __name__ == '__main__':
         stop_loss_col=columns[8],
         data=mdf.data
     )
-    mdf.data.to_excel('out.xlsx')
+    mdf.data.s90150 = mdf.data.s90150.replace(0, pd.NA)
+    try:
+        mdf.data.to_excel('out.xlsx')
+    except PermissionError:
+        pass
     print(mdf.data)
+
+    print(mdf.data.s90150)
+    # mdf.data.sl90150.loc[mdf.data.s90150 == pd.NA] = pd.NA
+    mdf.data[['close', 'b_close', 's90150', 'sl90150']].plot(
+        secondary_y=['s90150'],
+        style=['k:', 'k', 'm', 'r']
+    )
+    plt.show()
+

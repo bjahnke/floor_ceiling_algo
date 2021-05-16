@@ -18,12 +18,5 @@ def init_mdfs(symbols: List[str], freq_range: tdargs.FreqRangeArgs) -> List[trad
         )
     return mdfs
 
-def test_match_shapes():
-    base, bench = init_mdfs(
-        symbols=['AAPL', 'SPX'],
-        freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
-    )
-
-    merged_dfs = base.data.merge(bench.data)
 
 

@@ -2,7 +2,7 @@ from setuptools import setup
 
 setup(
     name='trade_utils',
-    version='4.21.2021.0',
+    version='5.15.2021.0',
     packages=[''],
     url='',
     license='',

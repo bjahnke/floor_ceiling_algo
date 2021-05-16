@@ -8,6 +8,8 @@ import tdargs
 import trade_df
 from datetime import datetime
 from typing import List, Union
+from tda_access import LocalClient
+import itertools  # construct a list of permutations
 from trade_stats import (
     simple_returns, cumulative_returns, cum_return_percent, count_signals,
     cumulative_returns_pct, rolling_profits, hit_rate, average_win,
@@ -15,55 +17,6 @@ from trade_stats import (
     common_sense_ratio, equity_at_risk, round_lot
 
 )
-
-import itertools  # construct a list of permutations
-
-# create td client
-class LocalClient:
-    data_client = tda.auth.easy_client(
-        api_key='UGLWOLA4LMXN684IG3MIMXMPDN1GBMNR',
-        redirect_uri='https://localhost',
-        token_path=r"C:\Users\Brian\Documents\Projects\TradeSandbox\credentials\token",
-        webdriver_func=selenium.webdriver.Firefox,
-    )
-
-    @staticmethod
-    def price_history(
-            symbol: str,
-            freq_range: tdargs.FreqRangeArgs,
-    ) -> pd.DataFrame:
-        """
-        # TODO add type hints
-        :param symbol:
-        :param freq_range:
-        :return:
-        """
-        # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
-        resp = LocalClient.data_client.get_price_history(
-            symbol,
-            period_type=freq_range.range.period.type,
-            period=freq_range.range.period.val,
-            frequency_type=freq_range.freq.type,
-            frequency=freq_range.freq.val,
-            start_datetime=freq_range.range.start,
-            end_datetime=freq_range.range.end,
-        )
-        history = resp.json()
-        df = pd.DataFrame(history['candles'])
-
-        # datetime given in ms, convert to readable date
-        df.datetime = pd.to_datetime(df.datetime, unit='ms')
-
-        # for truncating to date only (not hours/minutes/seconds)
-        # df.datetime = df.datetime.dt.date
-
-        # rename datetime to time for finplot compatibility
-        df = df.rename(columns={'datetime': 'time'})
-        df.index = df.time
-        # drop columns other than those mentioned (maybe want to save volume)
-        df.drop(df.columns.difference(['open', 'high', 'close', 'low']), 1, inplace=True)
-
-        return df
 
 
 def ma_crossover(slow_ma, fast_ma):
