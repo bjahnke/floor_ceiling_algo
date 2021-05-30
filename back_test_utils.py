@@ -343,7 +343,7 @@ def swings(
     prefix: str = 'sw'
 ) -> pd.DataFrame:
     """
-
+    Will raise ValueError if no swings found above 0 on high or low side
     :param df:
     :param high: col name for highs of day
     :param low: col name for lows of day
@@ -415,6 +415,9 @@ def swings(
     # Step 8: Instantiate last swing high and low dates
     last_slo_dt = df[df[swing_low] > 0].index.max()
     last_shi_dt = df[df[swing_high] > 0].index.max()
+    if pd.isnull(last_slo_dt) or pd.isnull(last_shi_dt):
+        # TODO improve error if necessary
+        raise ValueError('Quit swing calc. [Swing High > 0 AND Swing Low] condition fails.')
 
     # Step 9: Test for extreme values
     if (last_sign == -1) & (last_shi_dt != df[last_slo_dt:][swing_high].idxmax()):
@@ -711,16 +714,17 @@ def score_all(
     perf = pd.DataFrame()
     # TODO run score_card for all dfs
     for fc in fc_data_list:
-        res_perf, new_row, best_rar = fc_position_size(
-            fc_data=fc.data,
-            symbol=fc.symbol,
-            base_close=base_close,
-            relative_close=relative_close,
+        # res_perf, new_row, best_rar = init_fc_signal_stoploss(
+        #     fc_data=fc.data,
+        #     symbol=fc.symbol,
+        #     base_close=base_close,
+        #     relative_close=relative_close,
+        #
+        # )
+        pass
 
-        )
 
-
-def fc_position_size(
+def init_fc_signal_stoploss(
     fc_data: pd.DataFrame,
     symbol: str,
     base_close: str,
@@ -734,6 +738,22 @@ def fc_position_size(
     limit: int,
     best_risk_adjusted_returns: int,
 ):
+    """
+    TODO return info on selected signal
+    :param fc_data:
+    :param symbol:
+    :param base_close:
+    :param relative_close:
+    :param st_list:
+    :param mt_list:
+    :param tcs:
+    :param percentile:
+    :param minperiods:
+    :param window:
+    :param limit:
+    :param best_risk_adjusted_returns:
+    :return:
+    """
     perf = pd.DataFrame()
     best_rar = best_risk_adjusted_returns
     # ==================================
@@ -791,6 +811,14 @@ def fc_position_size(
         data['s' + stmt] = signal_fcstmt(
             regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma
         )
+
+        signals = data[pd.notnull(data['s' + stmt])]
+        if len(signals) == 0:
+            # no signals found, skip
+            continue
+
+        first_position_dt = signals.index[0]
+
         data['sl' + stmt] = stop_loss(
             signal=data['s' + stmt],
             close=data[relative_close],
@@ -800,7 +828,7 @@ def fc_position_size(
 
         # Date of initial position to calculate excess returns for passive
         # Passive stats are recalculated each time because start date changes with stmt sma
-        first_position_dt = data[pd.notnull(data['s' + stmt])].index[0]
+        # TODO move to first_position_dt
         data_sliced = data[first_position_dt:].copy()
 
         # Calculate daily & cumulative returns and include transaction costs

@@ -41,11 +41,11 @@ class Position:
 
 @dataclass
 class AccountInfo:
-    acct_data_raw: dict
+    acct_data_raw: t.Dict
     equity: float = field(init=False)
     liquid_funds: float = field(init=False)
     buy_power: float = field(init=False)
-    positions: dict[str, Position] = field(init=False)
+    positions: t.Dict[str, Position] = field(init=False)
 
     def __post_init__(self):
         cur_balance = self.acct_data_raw['securitiesAccount']['currentBalances']
@@ -55,10 +55,14 @@ class AccountInfo:
         self.positions = {
             pos['instrument']['symbol']: Position(pos['instrument'])
             for pos in self.acct_data_raw['securitiesAccount']['positions']
+            if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
 
     def get_position(self, symbol: str) -> t.Union[Position, None]:
         return self.positions.get(symbol, Side.CLOSE)
+
+    def get_symbols(self):
+        return [symbol for symbol, _ in self.positions.items()]
 
 
 # create td client
