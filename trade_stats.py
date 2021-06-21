@@ -3,6 +3,7 @@ Pure functions for calculating performance of strategies
 """
 import pandas as pd
 import numpy as np
+import typing as t
 
 # Calculates the returns
 def simple_returns(prices):
@@ -28,31 +29,31 @@ def cum_return_percent(raw_returns):
 
 
 # Define a function 'hit_rate', calculates the hits
-def hit_rate(returns, minperiods):
-    hits = (returns[returns > 0].expanding(min_periods=minperiods).count() /
-            returns.expanding(min_periods=minperiods).count()).fillna(method='ffill')
+def hit_rate(returns, min_periods):
+    hits = (returns[returns > 0].expanding(min_periods=min_periods).count() /
+            returns.expanding(min_periods=min_periods).count()).fillna(method='ffill')
     return hits
 
 
 # Define a function 'miss_rate', calculates the miss
-def miss_rate(returns, minperiods):
-    misses = (returns[returns < 0].expanding(min_periods=minperiods).count() /
-              returns.expanding(min_periods=minperiods).count()).fillna(method='ffill')
+def miss_rate(returns, min_periods):
+    misses = (returns[returns < 0].expanding(min_periods=min_periods).count() /
+              returns.expanding(min_periods=min_periods).count()).fillna(method='ffill')
     return misses
 
 
 # Define a function 'avg_win', calculates the average win
-def average_win(returns, minperiods):
+def average_win(returns, min_periods):
     avg_win = (
-        returns[returns > 0].expanding(min_periods=minperiods).sum() / returns.expanding(min_periods=minperiods).count()
+        returns[returns > 0].expanding(min_periods=min_periods).sum() / returns.expanding(min_periods=min_periods).count()
     ).fillna(method='ffill')
     return avg_win
 
 
 # Define a function 'avg_loss', calculates the average loss
-def average_loss(returns, minperiods):
+def average_loss(returns, min_periods):
     avg_loss = (
-        returns[returns < 0].expanding(min_periods=minperiods).sum() / returns.expanding(min_periods=minperiods).count()
+        returns[returns < 0].expanding(min_periods=min_periods).sum() / returns.expanding(min_periods=min_periods).count()
     ).fillna(method='ffill')
     return avg_loss
 
@@ -116,25 +117,25 @@ def count_signals(signals):
 # ======================
 
 # Define a function 'cumulative_returns'
-def cumulative_returns(returns, minperiods):
-    return returns.expanding(min_periods=minperiods).sum().apply(np.exp)
+def cumulative_returns(returns, min_periods):
+    return returns.expanding(min_periods=min_periods).sum().apply(np.exp)
 
 
 # Define a function 'cumulative_returns_pct'
-def cumulative_returns_pct(returns, minperiods):
-    return returns.expanding(min_periods=minperiods).sum().apply(np.exp) - 1
+def cumulative_returns_pct(returns, min_periods):
+    return returns.expanding(min_periods=min_periods).sum().apply(np.exp) - 1
 
 
 # Define a function 'average_returns'
-def average_returns(returns, minperiods):
-    avg_returns = (returns.expanding(min_periods=minperiods).sum() /
-                   returns.expanding(min_periods=minperiods).count())
+def average_returns(returns, min_periods):
+    avg_returns = (returns.expanding(min_periods=min_periods).sum() /
+                   returns.expanding(min_periods=min_periods).count())
     return avg_returns
 
 
 # Define a function 'stdev_returns'
-def stdev_returns(returns, minperiods):
-    std_returns = returns.expanding(min_periods=minperiods).std(ddof=0)
+def stdev_returns(returns, min_periods):
+    std_returns = returns.expanding(min_periods=min_periods).std(ddof=0)
     return std_returns
 
 
@@ -182,35 +183,35 @@ def rolling_sharpe(returns, window):
 
 
 # Define a function 'drawdown'
-def drawdown(returns, minperiods):
-    cum_rets = cumulative_returns(returns, minperiods)
+def drawdown(returns, min_periods):
+    cum_rets = cumulative_returns(returns, min_periods)
     dd = cum_rets / cum_rets.cummax() - 1
     return dd
 
 
 # Define a function 'max_drawdown'
-def max_drawdown(returns, minperiods):
-    max_dd = drawdown(returns, minperiods).cummin().fillna(method='ffill')
+def max_drawdown(returns, min_periods):
+    max_dd = drawdown(returns, min_periods).cummin().fillna(method='ffill')
     return max_dd
 
 # Robustness metrics
 
 
 # Define a function 'ulcer_index'
-def ulcer_index(returns, minperiods):
-    cum_rets = cumulative_returns(returns, minperiods).fillna(method='ffill')
+def ulcer_index(returns, min_periods):
+    cum_rets = cumulative_returns(returns, min_periods).fillna(method='ffill')
     peak_rets = cum_rets.cummax()
     dd = np.log((cum_rets/peak_rets).fillna(1)) ** 2
-    ulcer = np.sqrt(dd.expanding(min_periods=minperiods).sum())
+    ulcer = np.sqrt(dd.expanding(min_periods=min_periods).sum())
     return ulcer
 
 
 # Define a function 'grit_index'
-def grit_index(returns, minperiods):
-    cum_rets = cumulative_returns(returns, minperiods).fillna(method='ffill')
+def grit_index(returns, min_periods):
+    cum_rets = cumulative_returns(returns, min_periods).fillna(method='ffill')
     peak_rets = cum_rets.cummax()
     dd = np.log((cum_rets/peak_rets)) ** 2
-    ulcer = np.sqrt(dd.expanding(min_periods=minperiods).sum())
+    ulcer = np.sqrt(dd.expanding(min_periods=min_periods).sum())
     grit = cum_rets * ulcer ** -1
     return grit
 
@@ -222,9 +223,9 @@ def t_stat(signal_count, expectancy):
 
 
 # Define a function 'calmar_ratio'
-def calmar_ratio(returns, minperiods):
-    cum_rets = cumulative_returns(returns, minperiods).fillna(method='ffill')
-    max_dd = np.abs(max_drawdown(returns, minperiods))
+def calmar_ratio(returns, min_periods):
+    cum_rets = cumulative_returns(returns, min_periods).fillna(method='ffill')
+    max_dd = np.abs(max_drawdown(returns, min_periods))
     calmar = cum_rets / max_dd
     return calmar
 
@@ -252,14 +253,16 @@ def common_sense_ratio(pr, tr):
 
 
 # Define a function 'round_lot'
-def round_lot(
-    weight: float,
+def get_round_lot(
+    weight: t.Union[pd.Series, float],
     capital: float,
     fx_rate: int,
-    price_local: float,
-    roundlot: int
-) -> int:
+    price_local: t.Union[pd.Series, float],
+    roundlot: t.Union[pd.Series, int]
+) -> t.Union[pd.Series, int]:
     """
+    TODO add unit test:
+        - output cannot be fraction?
     :param weight: percent of portfolio to risk
     :param capital: total capital in account
     :param fx_rate: TODO foreign exchange rate?
@@ -270,11 +273,15 @@ def round_lot(
     book_value = weight * capital
     shares = book_value * fx_rate / price_local
     lot = round(shares / roundlot, 0) * roundlot
-    return int(lot)
+    return lot
 
 
 # Define a function 'equity_at_risk'
-def equity_at_risk(px_adj: pd.Series, stop_loss: pd.Series, risk: float) -> pd.Series:
+def equity_at_risk(
+    px_adj: t.Union[pd.Series, float],
+    stop_loss: t.Union[pd.Series, float],
+    risk: float
+) -> pd.Series:
     """
     :param px_adj: usually rebased close price is used
     :param stop_loss: stop loss data
@@ -282,5 +289,14 @@ def equity_at_risk(px_adj: pd.Series, stop_loss: pd.Series, risk: float) -> pd.S
     :return:
     """
     dsl = px_adj / stop_loss - 1  # distance to stop loss in currency adjusted relative
-    eqty_at_risk = risk / dsl  # weight in currency adjusted relative terms
+    try:
+        eqty_at_risk = risk / dsl  # weight in currency adjusted relative terms
+    except ZeroDivisionError:
+        eqty_at_risk = 0
+    else:
+        try:
+            eqty_at_risk = eqty_at_risk.replace([np.inf, -np.inf], 0)
+        except AttributeError:
+            # inputs were floats rather than series
+            pass
     return eqty_at_risk

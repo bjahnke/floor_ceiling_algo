@@ -5,6 +5,7 @@ analyzing order/balance/position history
 
 TODO order history?
 """
+from time import sleep, perf_counter
 
 import tda
 import selenium.webdriver
@@ -14,6 +15,27 @@ import json
 from dataclasses import dataclass, field
 import typing as t
 from enum import Enum
+
+
+def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
+    """
+    gives function an attribute upon declaration
+    :param new_attr: attribute name to add to function attributes
+    :param value: value to initialize attribute to
+    :return: decorator that will give the decorated function an attribute named
+    after the input new_attr
+    """
+    def decorator(function: t.Callable) -> t.Callable:
+        setattr(function, new_attr, value)
+        return function
+    return decorator
+
+
+class EmptyDataError(Exception):
+    """A dictionary with no data was received from request"""
+
+class TickerNotFoundError(Exception):
+    """error response from td api is Not Found"""
 
 class Side(Enum):
     LONG = 1
@@ -76,6 +98,7 @@ class LocalClient:
 
     @staticmethod
     def get_account_info() -> AccountInfo:
+
         resp = LocalClient.tda_client.get_account(
             # TODO Note: account id should remain private
             account_id=686081659,
@@ -92,6 +115,7 @@ class LocalClient:
         return AccountInfo(account_info_raw)
 
     @staticmethod
+    @give_attribute('request_sleeper', 3.7)
     def price_history(
             symbol: str,
             freq_range: tdargs.FreqRangeArgs,
@@ -102,18 +126,36 @@ class LocalClient:
         :param freq_range:
         :return:
         """
+        func_self = LocalClient.price_history
+
         # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
-        resp = LocalClient.tda_client.get_price_history(
-            symbol,
-            period_type=freq_range.range.period.type,
-            period=freq_range.range.period.val,
-            frequency_type=freq_range.freq.type,
-            frequency=freq_range.freq.val,
-            start_datetime=freq_range.range.start,
-            end_datetime=freq_range.range.end,
-        )
-        history = resp.json()
+        while True:
+            resp = LocalClient.tda_client.get_price_history(
+                symbol,
+                period_type=freq_range.range.period.type,
+                period=freq_range.range.period.val,
+                frequency_type=freq_range.freq.type,
+                frequency=freq_range.freq.val,
+                start_datetime=freq_range.range.start,
+                end_datetime=freq_range.range.end,
+            )
+            history = resp.json()
+            if history.get('candles', None) is not None:
+                break
+            elif history['error'] == 'Not Found':
+                print(f'td api could not find symbol {symbol}')
+                raise TickerNotFoundError(f'td api could not find symbol {symbol}')
+            else:
+                raise EmptyDataError(f'No data received for symbol {symbol}')
+                # print(history['error'])
+                # print(f'sleeping for {func_self.request_sleeper}...')
+                # sleep(func_self.request_sleeper)
+                # func_self.request_sleeper += .1
+
         df = pd.DataFrame(history['candles'])
+
+        if history['empty'] is True:
+            raise EmptyDataError(f'No data received for symbol {symbol}')
 
         # datetime given in ms, convert to readable date
         df.datetime = pd.to_datetime(df.datetime, unit='ms')
@@ -128,6 +170,4 @@ class LocalClient:
         df.drop(df.columns.difference(['open', 'high', 'close', 'low']), 1, inplace=True)
 
         return df
-
-
 
