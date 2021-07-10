@@ -272,7 +272,7 @@ def get_round_lot(
     """
     book_value = weight * capital
     shares = book_value * fx_rate / price_local
-    lot = round(shares / roundlot, 0) * roundlot
+    lot = round(shares // roundlot, 0) * roundlot
     return lot
 
 

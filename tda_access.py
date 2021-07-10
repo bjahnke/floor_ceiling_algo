@@ -5,6 +5,7 @@ analyzing order/balance/position history
 
 TODO order history?
 """
+import datetime
 from time import sleep, perf_counter
 
 import tda
@@ -15,6 +16,7 @@ import json
 from dataclasses import dataclass, field
 import typing as t
 from enum import Enum
+import tda.orders.equities as toe
 
 
 def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
@@ -45,50 +47,75 @@ class Side(Enum):
 
 @dataclass
 class Position:
+    _CLOSE_ORDER = {
+        Side.LONG: lambda sym, qty: toe.equity_sell_market(sym, qty),
+        Side.SHORT: lambda sym, qty: toe.equity_buy_to_cover_market(sym, qty),
+    }
+    _OPEN_ORDER = {
+        Side.LONG: lambda sym, qty: toe.equity_buy_market(sym, qty),
+        Side.SHORT: lambda sym, qty: toe.equity_sell_short_market(sym, qty),
+    }
+
     raw_position: dict
     symbol: str = field(init=False)
     value: int = field(init=False)
     qty: int = field(init=False)
-    side: Side = field(init=False)
+    _side: Side = field(init=False)
 
     def __post_init__(self):
         self.symbol = self.raw_position['instrument']['symbol']
         self.value = self.raw_position['marketValue']
         if self.raw_position['shortQuantity'] > 0:
             self.qty = self.raw_position['shortQuantity']
-            self.side = Side.SHORT
+            self._side = Side.SHORT
         else:
             self.qty = self.raw_position['longQuantity']
-            self.side = Side.LONG
+            self._side = Side.LONG
+
+    @property
+    def side(self):
+        return self._side
+
+    def full_close(self):
+        Position._CLOSE_ORDER[self._side](self.symbol, self.qty)
+
+    def open(self, quantity):
+        Position._OPEN_ORDER[self._side](self.symbol, quantity)
 
 @dataclass
 class AccountInfo:
+
     acct_data_raw: t.Dict
     equity: float = field(init=False)
     liquid_funds: float = field(init=False)
     buy_power: float = field(init=False)
-    positions: t.Dict[str, Position] = field(init=False)
+    _positions: t.Dict[str, Position] = field(init=False)
 
     def __post_init__(self):
         cur_balance = self.acct_data_raw['securitiesAccount']['currentBalances']
         self.equity = cur_balance['equity']
         self.liquid_funds = cur_balance['moneyMarketFund'] + cur_balance['cashBalance']
         self.buy_power = cur_balance['buyingPower']
-        self.positions = {
+        self._positions = {
             pos['instrument']['symbol']: Position(pos['instrument'])
             for pos in self.acct_data_raw['securitiesAccount']['positions']
             if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
 
-    def get_position(self, symbol: str) -> t.Union[Position, None]:
-        return self.positions.get(symbol, Side.CLOSE)
+    @property
+    def positions(self):
+        return self._positions
+
+    def get_position_info(self, symbol: str) -> t.Union[Position, None]:
+        return self._positions.get(symbol, None)
 
     def get_symbols(self):
-        return [symbol for symbol, _ in self.positions.items()]
+        return [symbol for symbol, _ in self._positions.items()]
 
 
-# create td client
-class LocalClient:
+class _LocalClientMeta(type):
+    _ACCOUNT_ID = 686081659
+
     tda_client = tda.auth.easy_client(
         api_key='UGLWOLA4LMXN684IG3MIMXMPDN1GBMNR',
         redirect_uri='https://localhost',
@@ -96,12 +123,11 @@ class LocalClient:
         webdriver_func=selenium.webdriver.Firefox,
     )
 
-    @staticmethod
-    def get_account_info() -> AccountInfo:
-
+    @property
+    def account_info(self) -> AccountInfo:
         resp = LocalClient.tda_client.get_account(
             # TODO Note: account id should remain private
-            account_id=686081659,
+            account_id=self._ACCOUNT_ID,
             fields=[
                 tda.client.Client.Account.Fields.ORDERS,
                 tda.client.Client.Account.Fields.POSITIONS
@@ -113,6 +139,24 @@ class LocalClient:
             json.dump(account_info_raw, outfile, indent=4)
 
         return AccountInfo(account_info_raw)
+
+    def orders(self, *statuses):
+        return self.tda_client.get_orders_by_path(
+            account_id=self._ACCOUNT_ID,
+            from_entered_datetime=datetime.datetime.utcnow() - datetime.timedelta(days=59),
+            statuses=statuses
+        ).json()
+
+    def place_order_spec(cls, order_spec):
+        return cls.tda_client.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
+
+    def flush_orders(cls):
+        for order in cls.orders():
+            cls.tda_client.cancel_order(order_id=order['orderId'], account_id=LocalClient._ACCOUNT_ID)
+
+
+# create td client
+class LocalClient(metaclass=_LocalClientMeta):
 
     @staticmethod
     @give_attribute('request_sleeper', 3.7)
@@ -170,4 +214,3 @@ class LocalClient:
         df.drop(df.columns.difference(['open', 'high', 'close', 'low']), 1, inplace=True)
 
         return df
-

@@ -18,6 +18,9 @@ from trade_stats import (
 
 )
 
+class NoSwingsError(Exception):
+    """FC calc cannot continue because no swings were detected"""
+
 
 def ma_crossover(slow_ma, fast_ma):
     """
@@ -436,8 +439,7 @@ def swings(
     last_slo_dt = df[df[swing_low] > 0].index.max()
     last_shi_dt = df[df[swing_high] > 0].index.max()
     if pd.isnull(last_slo_dt) or pd.isnull(last_shi_dt):
-        # TODO improve error if necessary
-        raise ValueError('Quit swing calc. [Swing High > 0 AND Swing Low] condition fails.')
+        raise NoSwingsError('Quit swing calc. [Swing High > 0 AND Swing Low] condition fails.')
 
     # Step 9: Test for extreme values
     if (last_sign == -1) & (last_shi_dt != df[last_slo_dt:][swing_high].idxmax()):

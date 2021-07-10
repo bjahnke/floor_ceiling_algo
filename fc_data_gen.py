@@ -1,4 +1,6 @@
 import typing as t
+from abc import ABC, ABCMeta, abstractmethod
+
 import pandas as pd
 import back_test_utils as btu
 import tda_access
@@ -53,24 +55,31 @@ def merge_reshape(price_data_prefix: str, price_data: pd.DataFrame, other_data: 
     return reshaped
 
 
+class AccessorBase(metaclass=ABCMeta):
+    mandatory_cols: t.List[str]
+
+    def __init__(self, df: pd.DataFrame):
+        self._validate(df)
+        self._obj = df
+
+    @classmethod
+    def _validate(cls, df: pd.DataFrame):
+        _validate(df, cls.mandatory_cols)
+
+
 @pd.api.extensions.register_dataframe_accessor('swings')
-class Swings:
+class Swings(AccessorBase):
     mandatory_cols = [
         'high',
         'low',
     ]
 
     def __init__(self, df: pd.DataFrame):
-        self._validate(df)
-        self._obj = df
-
-    @staticmethod
-    def _validate(df: pd.DataFrame):
-        _validate(df, Swings.mandatory_cols)
+        super().__init__(df)
 
 
 @pd.api.extensions.register_dataframe_accessor('fc')
-class FcData:
+class FcData(AccessorBase):
     mandatory_cols = [
         'close',
         'b_close',
@@ -95,15 +104,10 @@ class FcData:
     ]
 
     def __init__(self, df: pd.DataFrame):
-        self._validate(df)
-        self._obj = df
-
-    @staticmethod
-    def _validate(df: pd.DataFrame):
-        _validate(df, FcData.mandatory_cols)
+        super().__init__(df)
 
     @property
-    def signals(self):
+    def signal_starts(self):
         """get all rows where a signal is generated"""
         return self._obj[self._obj.signal.shift(-1).isnull() & self._obj.signal.notnull()]
 
@@ -111,6 +115,65 @@ class FcData:
     def position_sizes(self):
         """"""
         return None
+
+@pd.api.extensions.register_dataframe_accessor('signals')
+class Signals(AccessorBase):
+    mandatory_cols = [
+        'signal'
+    ]
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__(df)
+
+    @property
+    def starts(self) -> pd.DataFrame:
+        """transition from nan to non-nan means signal has started"""
+        return self._obj[self._obj.signal.shift(1).isnull() & self._obj.signal.notnull()]
+
+    @property
+    def ends(self) -> pd.DataFrame:
+        """transition from non-nan to nan means signal has ended"""
+        return self._obj[self._obj.signal.shift(-1).isnull() & self._obj.signal.notnull()]
+
+    @property
+    def slices(self) -> t.List[pd.DataFrame]:
+        # TODO loop iter on DataFrame bad but there should only be small amount of signals
+        starts = self.starts
+        ends = self.ends
+        return [
+            self._obj.loc[starts.index[i]: end_date]
+            for i, end_date in enumerate(ends.index.to_list())
+        ]
+
+    @property
+    def current(self):
+        """the current signal of the most recent bar. [-1, 0, 1, nan]"""
+        return self._obj.signal[-1]
+
+    @property
+    def prev(self):
+        return self._obj.signal[-2]
+
+
+@pd.api.extensions.register_dataframe_accessor('lots')
+class Lots(AccessorBase):
+    mandatory_cols = [
+        'eqty_risk_lot',
+        'signal'
+    ]
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__(df)
+
+    def true_lots(self):
+        """
+        changes negative short lots to positive
+        positive short lots to negative (account too small for min position size)
+        negative long lots remain negative (account too small)
+        positive long lots remain positive
+        :return:
+        """
+        return self._obj.eqty_risk_lot * self._obj.signal
 
 
 def init_fc_data(
@@ -199,14 +262,19 @@ def init_fc_data(
         ['open', 'high', 'low', 'close', 'b_close']
     ]
 
+    try:
+        data = btu.swings(
+            df=data,
+            high='high',
+            low='low',
+            arg_rel_window=arg_rel_window,
+            prefix='sw'
+        )
+    except btu.NoSwingsError as err:
+        # pass along the symbol that swing failed to calculate
+        err.args += (base_symbol,)
+        raise err
 
-    data = btu.swings(
-        df=data,
-        high='high',
-        low='low',
-        arg_rel_window=arg_rel_window,
-        prefix='sw'
-    )
     data = btu.regime_fc(
         df=data,
         close='close',

@@ -344,9 +344,7 @@ class RelativeMdf(PriceMdf):
 
     def get_signal(self) -> (int, int):
         """return last 2 rows of signal column"""
-        # TODO signal and stop loss column needs to be given generic name
-        cols = self.data.columns.to_list()
-        signal_col = self.data.cols[7]
+        signal_col = self.data.signal
         return signal_col[-1], signal_col[-2]
 
 

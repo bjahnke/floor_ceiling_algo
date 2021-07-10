@@ -473,13 +473,13 @@ def stop_loss(signal,close,s_low,s_high):
 
 
 # Calculates the transaction costs
-def transaction_costs(df,position_column,daily_return,tcs):
+def transaction_costs(df,position_column,daily_return,transaction_cost):
     """
     identifies entries and exits by subtracting position column one row up .diff().
     fillna(0) is done before subtraction to avoid any residual na and after 
-    tcs is subtracted from daily returns before compounding
+    transaction_cost is subtracted from daily returns before compounding
     returns daily returns col adjusted for transactions
     """
     inout = df[position_column].fillna(0).diff().fillna(0) !=0 # boolean filter
-    df[daily_return] = np.where(inout,df[daily_return]- float(tcs),df[daily_return])
+    df[daily_return] = np.where(inout,df[daily_return]- float(transaction_cost),df[daily_return])
     return df[daily_return]

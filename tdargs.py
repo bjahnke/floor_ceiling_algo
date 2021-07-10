@@ -163,12 +163,12 @@ periods = _PeriodMap(
     m3=_TypeMap(_tda_period_type.MONTH, _tda_period.THREE_MONTHS),
     m2=_TypeMap(_tda_period_type.MONTH, _tda_period.TWO_MONTHS),
     m1=_TypeMap(_tda_period_type.MONTH, _tda_period.ONE_MONTH),
-    d10=_TypeMap(_tda_period_type.MONTH, _tda_period.TEN_DAYS),
-    d5=_TypeMap(_tda_period_type.MONTH, _tda_period.FIVE_DAYS),
-    d4=_TypeMap(_tda_period_type.MONTH, _tda_period.FOUR_DAYS),
-    d3=_TypeMap(_tda_period_type.MONTH, _tda_period.THREE_DAYS),
-    d2=_TypeMap(_tda_period_type.MONTH, _tda_period.TWO_DAYS),
-    d1=_TypeMap(_tda_period_type.MONTH, _tda_period.ONE_DAY),
+    d10=_TypeMap(_tda_period_type.DAY, _tda_period.TEN_DAYS),
+    d5=_TypeMap(_tda_period_type.DAY, _tda_period.FIVE_DAYS),
+    d4=_TypeMap(_tda_period_type.DAY, _tda_period.FOUR_DAYS),
+    d3=_TypeMap(_tda_period_type.DAY, _tda_period.THREE_DAYS),
+    d2=_TypeMap(_tda_period_type.DAY, _tda_period.TWO_DAYS),
+    d1=_TypeMap(_tda_period_type.DAY, _tda_period.ONE_DAY),
 )
 
 

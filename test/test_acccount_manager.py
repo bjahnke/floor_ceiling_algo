@@ -25,5 +25,5 @@ def test_account_add_remove():
     Un-staged: algorithm will cease to look for opportunities to
         trade the symbol after the current position is closed.
     """
-    acct_info = tda_access.LocalClient.get_account_info()
+    acct_info = tda_access.LocalClient.account_info
     acct_info.stage('')

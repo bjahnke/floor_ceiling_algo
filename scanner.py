@@ -2,6 +2,8 @@
 
 """
 import cProfile
+from time import time
+
 import httpx
 import fc_data_gen
 import tdargs
@@ -10,8 +12,9 @@ import pandas as pd
 import trade_stats
 from dotmap import DotMap
 import tda_access
+from back_test_utils import NoSwingsError
 
-account_info = tda_access.LocalClient.get_account_info()
+account_info = tda_access.LocalClient.account_info
 
 def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
     list_dict = []
@@ -22,14 +25,13 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
     failed.ticker_not_found = set()
     failed.no_high_score = set()
 
-    request_counter = 0
     while len(symbols) > 0:
         symbol = symbols[0]
         try:
             relative_data = fc_data_gen.init_fc_data(
                 base_symbol=symbol,
                 bench_symbol='SPX',
-                equity=10000,
+                equity=account_info.equity,
                 freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
             )
         except tda_access.EmptyDataError:
@@ -39,11 +41,7 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
         except tda_access.TickerNotFoundError:
             failed.empty_data.add(symbol)
             symbols.pop(0)
-        # except KeyError:
-        #     failed.no_candles.add(symbol)
-        # except AttributeError:
-        #     failed.no_datetime.add(symbols.pop(0))
-        except ValueError as err:
+        except NoSwingsError as err:
             if symbol in err.args:
                 failed.no_swings.add(symbols.pop(0))
             else:
@@ -73,6 +71,7 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
         'regime_change_date',
         'up_to_date',
         'regime',
+        'signal',
         'relative_returns',
         'absolute_returns',
         'close',
@@ -93,8 +92,6 @@ def regime_scan(
     stock_close_col: str,
 ) -> t.Dict:
     price_data_cols = price_data.columns.to_list()
-    signal_col = price_data_cols[7]
-    position_size_col = 'eqty_risk_lot'
 
     # Create a dataframe and dictionary list
     # Current regime
@@ -110,10 +107,10 @@ def regime_scan(
     )
 
     # TODO no position sizes to calculate on
-    position_size_date = price_data[price_data[position_size_col].diff() != 0].index[-2]
-    position_size = price_data.loc[position_size_date][position_size_col]
+    position_size = price_data.signals.slices[-1].eqty_risk_lot[-1]
     return {
         'regime': regime,
+        'signal': price_data.signal[-1],
         'regime_change_date': regime_change_date,
         'relative_returns': cumulative_relative_returns,
         'absolute_returns': cumulative_absolute_returns,
@@ -132,6 +129,7 @@ def cumulative_percent_returns(price_data, regime_change_date, arg2):
 def main(symbols: t.List[str], bench: str):
 
     scan_results = fc_scan_all(bench, symbols)
+    scan_results['true_pos_size'] = scan_results.position_size * scan_results.signal
     # scan_results = fc_scan_all('SPX', ['ADP'])
 
     print(len(scan_results.index))
@@ -160,6 +158,10 @@ if __name__ == '__main__':
             "User-Agent": "Mozilla/5.0"
         }
     ).read().decode().split()
-    main(symbols=sp500, bench='SPX')
+    start = time()
+    main(symbols=['GPRO'], bench='SPX')
+    print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
+
+
 
