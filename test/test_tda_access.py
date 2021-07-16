@@ -24,8 +24,12 @@ def test_order():
     print('done.')
 
 
+def test_get_order_id():
+    equity_buy_market('GPRO', 1)
+    orders = ta.LocalClient.orders()
+    print('done')
+
+
 if __name__ == '__main__':
-    acct_orders = ta.LocalClient.account_info.acct_data_raw['securitiesAccount']['orderStrategies']
-    query_orders = ta.LocalClient.orders(COS.WORKING, COS.QUEUED)
-    print('a')
+    test_get_order_id()
 
