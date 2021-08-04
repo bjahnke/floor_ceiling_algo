@@ -2,6 +2,7 @@
 test tda access functionality
 """
 import pprint
+import typing as t
 
 from tda.orders.equities import equity_buy_market, equity_sell_market
 from tda.client import Client
@@ -25,8 +26,23 @@ def test_order():
 
 
 def test_get_order_id():
-    equity_buy_market('GPRO', 1)
-    orders = ta.LocalClient.orders()
+    res_order_id = ta.LocalClient.place_order_spec(equity_buy_market('GPRO', 1))
+
+    orders: t.List[t.Dict] = ta.LocalClient.orders()
+    expected_order_id = orders[0]['orderId']
+
+    assert res_order_id == expected_order_id
+
+
+def check_order_details():
+    """use with debugger to check composition of order dictionary"""
+    orders: t.List[t.Dict] = ta.LocalClient.orders()
+    order_details = orders[0]['orderLegCollection'][0]
+    direction = order_details['instruction']
+    qty = order_details['quantity']
+    symbol = order_details['instrument']['symbol']
+    order_id = orders[0]['orderId']
+
     print('done')
 
 

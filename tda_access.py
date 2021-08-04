@@ -6,6 +6,7 @@ analyzing order/balance/position history
 TODO order history?
 """
 import datetime
+import credentials
 from time import sleep, perf_counter
 
 import tda
@@ -121,13 +122,11 @@ class _LocalClientMeta(type):
     _ACCOUNT_ID: int
     _TDA_CLIENT: tda.client.Client
 
-    with open('credentials.json') as cred_data:
-        cred_dict = json.load(cred_data)
-        _ACCOUNT_ID = cred_dict['account_id']
-        _TDA_CLIENT = tda.auth.easy_client(
-            webdriver_func=selenium.webdriver.Firefox,
-            **cred_dict['client_params']
-        )
+    _ACCOUNT_ID = credentials.ACCOUNT_ID
+    _TDA_CLIENT = tda.auth.easy_client(
+        webdriver_func=selenium.webdriver.Firefox,
+        **credentials.CLIENT_PARAMS
+    )
 
     @property
     def account_info(self) -> AccountInfo:
@@ -176,8 +175,6 @@ class LocalClient(metaclass=_LocalClientMeta):
         :param freq_range:
         :return:
         """
-        func_self = LocalClient.price_history
-
         # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
         while True:
             resp = LocalClient._TDA_CLIENT.get_price_history(
