@@ -97,9 +97,9 @@ class AccountInfo:
         self.liquid_funds = cur_balance['moneyMarketFund'] + cur_balance['cashBalance']
         self.buy_power = cur_balance['buyingPower']
         self._positions = {
-            pos['instrument']['symbol']: Position(pos['instrument'])
-            for pos in self.acct_data_raw['securitiesAccount']['positions']
-            if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
+            pos_raw['instrument']['symbol']: Position(pos_raw)
+            for pos_raw in self.acct_data_raw['securitiesAccount']['positions']
+            if pos_raw['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
 
     @property
@@ -147,8 +147,12 @@ class _LocalClientMeta(type):
             statuses=statuses
         ).json()
 
-    def place_order_spec(cls, order_spec):
+    def submit_order(cls, order_spec):
         return cls.tda_client.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
+
+    def close_position(cls, symbol):
+        position = cls.account_info.positions.get(symbol, None)
+        # TODO get the pos
 
     def flush_orders(cls):
         for order in cls.orders():
@@ -159,7 +163,6 @@ class _LocalClientMeta(type):
 class LocalClient(metaclass=_LocalClientMeta):
 
     @staticmethod
-    @give_attribute('request_sleeper', 3.7)
     def price_history(
             symbol: str,
             freq_range: tdargs.FreqRangeArgs,
@@ -191,10 +194,6 @@ class LocalClient(metaclass=_LocalClientMeta):
                 raise TickerNotFoundError(f'td api could not find symbol {symbol}')
             else:
                 raise EmptyDataError(f'No data received for symbol {symbol}')
-                # print(history['error'])
-                # print(f'sleeping for {func_self.request_sleeper}...')
-                # sleep(func_self.request_sleeper)
-                # func_self.request_sleeper += .1
 
         df = pd.DataFrame(history['candles'])
 
@@ -214,3 +213,18 @@ class LocalClient(metaclass=_LocalClientMeta):
         df.drop(df.columns.difference(['open', 'high', 'close', 'low']), 1, inplace=True)
 
         return df
+
+
+def test_order():
+
+    # order = toe.equity_buy_market('GPRO', 1)
+    # pretend
+    order_id = 4662112223
+    # LocalClient.submit_order(order)
+    orders = LocalClient.orders()[0]
+    pos = LocalClient.account_info.positions
+    print('done')
+
+
+if __name__ == '__main__':
+    test_order()

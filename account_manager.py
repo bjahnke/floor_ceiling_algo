@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import numpy as np
 import tda
 import pandas as pd
@@ -10,7 +12,6 @@ from collections import namedtuple
 from enum import Enum
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
-
 
 
 # =======
@@ -62,7 +63,6 @@ class AccountManager:
                     -
         :return:
         """
-
         while True:
             for symbol, data in self.managed.items():
                 position_info = self._account_info.positions.get(symbol, None)
@@ -79,6 +79,8 @@ class AccountManager:
 
                     pass
 
+class Closed:
+    pass
 
 def init_states(active_symbols: t.List[str], signal_data: t.Dict[str, pd.DataFrame]) -> _TradeStates:
     """
@@ -99,6 +101,52 @@ def init_states(active_symbols: t.List[str], signal_data: t.Dict[str, pd.DataFra
     return _TradeStates(managed=managed, not_managed=active_symbols_local)
 
 
+class SymbolData:
+    _name: str
+    _data: pd.DataFrame
+    _update_price_history: t.Callable[[], pd.DataFrame]
+
+    # TODO wrap init around price history, store price history
+    #   params for re-calling price history upon update
+    def __init__(self, symbol_name, update_price_history):
+        self._name = symbol_name
+        self._data = update_price_history()
+        self._update_price_history = update_price_history
+
+        # TODO ensure date format is correct
+        date_format = "%Y-%m-%d"
+        d1 = datetime.strptime(self._data.index[-2], date_format)
+        d2 = datetime.strptime(self._data.index[-3], date_format)
+        self._freq = (d1 - d2).days
+
+    @property
+    def name(self):
+        return self._name
+
+    @property
+    def data(self):
+        return self._data
+
+    @property
+    def freq(self):
+        return self._freq
+
+    @property
+    def update_ready(self):
+        """True if current time exceeds frequency"""
+        return True
+
+    def attempt_update(self):
+        """attempt to get new price history, update strategy"""
+        if self.update_ready:
+            self._data = self._update_price_history()
+
+
 class SymbolManager:
+    _symbol_data: SymbolData
+
     """not sure if this class is necessary"""
-    pass
+    def __init__(self, symbol_data):
+        self._symbol_data = symbol_data
+
+
