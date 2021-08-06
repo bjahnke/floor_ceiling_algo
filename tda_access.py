@@ -6,17 +6,18 @@ analyzing order/balance/position history
 TODO order history?
 """
 import datetime
+import credentials
 from time import sleep, perf_counter
 
 import tda
 import selenium.webdriver
 import pandas as pd
 import tdargs
-import json
 from dataclasses import dataclass, field
 import typing as t
 from enum import Enum
 import tda.orders.equities as toe
+import json
 
 
 def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
@@ -36,8 +37,10 @@ def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
 class EmptyDataError(Exception):
     """A dictionary with no data was received from request"""
 
+
 class TickerNotFoundError(Exception):
     """error response from td api is Not Found"""
+
 
 class Side(Enum):
     LONG = 1
@@ -82,6 +85,7 @@ class Position:
     def open(self, quantity):
         Position._OPEN_ORDER[self._side](self.symbol, quantity)
 
+
 @dataclass
 class AccountInfo:
 
@@ -97,9 +101,9 @@ class AccountInfo:
         self.liquid_funds = cur_balance['moneyMarketFund'] + cur_balance['cashBalance']
         self.buy_power = cur_balance['buyingPower']
         self._positions = {
-            pos_raw['instrument']['symbol']: Position(pos_raw)
-            for pos_raw in self.acct_data_raw['securitiesAccount']['positions']
-            if pos_raw['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
+            pos['instrument']['symbol']: Position(pos['instrument'])
+            for pos in self.acct_data_raw['securitiesAccount']['positions']
+            if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
 
     @property
@@ -114,18 +118,19 @@ class AccountInfo:
 
 
 class _LocalClientMeta(type):
-    _ACCOUNT_ID = 686081659
+    tda_credentials = dict()
+    _ACCOUNT_ID: int
+    _TDA_CLIENT: tda.client.Client
 
-    tda_client = tda.auth.easy_client(
-        api_key='UGLWOLA4LMXN684IG3MIMXMPDN1GBMNR',
-        redirect_uri='https://localhost',
-        token_path=r"C:\Users\Brian\Documents\_projects\_trading\credentials\token",
+    _ACCOUNT_ID = credentials.ACCOUNT_ID
+    _TDA_CLIENT = tda.auth.easy_client(
         webdriver_func=selenium.webdriver.Firefox,
+        **credentials.CLIENT_PARAMS
     )
 
     @property
     def account_info(self) -> AccountInfo:
-        resp = LocalClient.tda_client.get_account(
+        resp = LocalClient._TDA_CLIENT.get_account(
             # TODO Note: account id should remain private
             account_id=self._ACCOUNT_ID,
             fields=[
@@ -147,8 +152,8 @@ class _LocalClientMeta(type):
             statuses=statuses
         ).json()
 
-    def submit_order(cls, order_spec):
-        return cls.tda_client.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
+    def place_order_spec(cls, order_spec):
+        return cls._TDA_CLIENT.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
 
     def close_position(cls, symbol):
         position = cls.account_info.positions.get(symbol, None)
@@ -156,7 +161,7 @@ class _LocalClientMeta(type):
 
     def flush_orders(cls):
         for order in cls.orders():
-            cls.tda_client.cancel_order(order_id=order['orderId'], account_id=LocalClient._ACCOUNT_ID)
+            cls._TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=LocalClient._ACCOUNT_ID)
 
 
 # create td client
@@ -173,11 +178,9 @@ class LocalClient(metaclass=_LocalClientMeta):
         :param freq_range:
         :return:
         """
-        func_self = LocalClient.price_history
-
         # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
         while True:
-            resp = LocalClient.tda_client.get_price_history(
+            resp = LocalClient._TDA_CLIENT.get_price_history(
                 symbol,
                 period_type=freq_range.range.period.type,
                 period=freq_range.range.period.val,
