@@ -167,8 +167,9 @@ class _LocalClientMeta(type):
 # create td client
 class LocalClient(metaclass=_LocalClientMeta):
 
-    @staticmethod
+    @classmethod
     def price_history(
+            cls,
             symbol: str,
             freq_range: tdargs.FreqRangeArgs,
     ) -> pd.DataFrame:
@@ -180,7 +181,7 @@ class LocalClient(metaclass=_LocalClientMeta):
         """
         # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
         while True:
-            resp = LocalClient._TDA_CLIENT.get_price_history(
+            resp = cls._TDA_CLIENT.get_price_history(
                 symbol,
                 period_type=freq_range.range.period.type,
                 period=freq_range.range.period.val,

@@ -16,6 +16,7 @@ from back_test_utils import NoSwingsError
 
 account_info = tda_access.LocalClient.account_info
 
+
 def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
     list_dict = []
     failed = DotMap(_dynamic=False)

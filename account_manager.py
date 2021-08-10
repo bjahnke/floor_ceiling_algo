@@ -1,15 +1,16 @@
 from datetime import datetime
 
-import numpy as np
-import tda
 import pandas as pd
 from copy import copy
-import trade_df
+
+from pandas import Timestamp, Timedelta
+
+import fc_data_gen
 import tda_access
 import typing as t
 import tdargs
 from collections import namedtuple
-from enum import Enum
+from tda_access import AccountInfo
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
 
@@ -18,16 +19,39 @@ _TradeStates = namedtuple('TradeStates', 'managed not_managed')
 # lib function
 # =======
 
+
+def get_minimum_freq(date_times: t.Iterable[Timestamp]) -> Timedelta:
+    """
+    get the minimum frequency across a series of timestamps.
+    Used to determine frequency of a series while taking into
+    account larger than normal differences in bar times due to
+    weekends and holiday
+    :param date_times:
+    """
+    minimum = datetime.today() - date_times[-10]
+    for i, date in enumerate(date_times):
+        if date == date_times[-1]:
+            break
+        current_diff = date_times[i + 1] - date
+        minimum = min(minimum, current_diff)
+
+    return minimum
+
+
 class TradeState:
+    """
+    """
     PENDING = -2
     SELL = -1
     CLOSE = 0
     BUY = 1
 
+
 class Input:
     BUY = 1
     SELL = -1
     CLOSE = pd.NA
+
 
 TS = TradeState
 
@@ -79,8 +103,10 @@ class AccountManager:
 
                     pass
 
+
 class Closed:
     pass
+
 
 def init_states(active_symbols: t.List[str], signal_data: t.Dict[str, pd.DataFrame]) -> _TradeStates:
     """
@@ -105,19 +131,24 @@ class SymbolData:
     _name: str
     _data: pd.DataFrame
     _update_price_history: t.Callable[[], pd.DataFrame]
+    _bar_freq: Timedelta
 
-    # TODO wrap init around price history, store price history
-    #   params for re-calling price history upon update
-    def __init__(self, symbol_name, update_price_history):
-        self._name = symbol_name
-        self._data = update_price_history()
-        self._update_price_history = update_price_history
-
-        # TODO ensure date format is correct
-        date_format = "%Y-%m-%d"
-        d1 = datetime.strptime(self._data.index[-2], date_format)
-        d2 = datetime.strptime(self._data.index[-3], date_format)
-        self._freq = (d1 - d2).days
+    def __init__(
+        self,
+        base_symbol: str,
+        bench_symbol: str,
+        freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
+    ):
+        self._name = base_symbol
+        self._bench_symbol = bench_symbol
+        self._freq_range = freq_range
+        self._data = fc_data_gen.init_fc_data(
+            base_symbol=self._name,
+            bench_symbol=self._bench_symbol,
+            equity=tda_access.LocalClient.account_info.equity,
+            freq_range=self._freq_range
+        )
+        self._bar_freq = get_minimum_freq(self._data.index)
 
     @property
     def name(self):
@@ -128,18 +159,23 @@ class SymbolData:
         return self._data
 
     @property
-    def freq(self):
-        return self._freq
+    def bar_freq(self):
+        return self._bar_freq
 
-    @property
     def update_ready(self):
-        """True if current time exceeds frequency"""
-        return True
+        """True if current time exceeds frequency (ie. new data should be available)"""
+        return (datetime.now() - self._data.index[-1]) > self._bar_freq
 
     def attempt_update(self):
         """attempt to get new price history, update strategy"""
-        if self.update_ready:
-            self._data = self._update_price_history()
+        if api_called := self.update_ready:
+            self._data = fc_data_gen.init_fc_data(
+                base_symbol=self._name,
+                bench_symbol=self._bench_symbol,
+                equity=tda_access.LocalClient.account_info.equity,
+                freq_range=self._freq_range
+            )
+        return api_called
 
 
 class SymbolManager:
