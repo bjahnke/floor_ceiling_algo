@@ -101,7 +101,7 @@ class AccountInfo:
         self.liquid_funds = cur_balance['moneyMarketFund'] + cur_balance['cashBalance']
         self.buy_power = cur_balance['buyingPower']
         self._positions = {
-            pos['instrument']['symbol']: Position(pos['instrument'])
+            pos['instrument']['symbol']: Position(pos)
             for pos in self.acct_data_raw['securitiesAccount']['positions']
             if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
@@ -214,7 +214,7 @@ class LocalClient(metaclass=_LocalClientMeta):
         df = df.rename(columns={'datetime': 'time'})
         df.index = df.time
         # drop columns other than those mentioned (maybe want to save volume)
-        df.drop(df.columns.difference(['open', 'high', 'close', 'low']), 1, inplace=True)
+        df = df[['open', 'high', 'close', 'low']]
 
         return df
 

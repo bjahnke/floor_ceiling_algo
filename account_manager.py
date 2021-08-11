@@ -1,4 +1,5 @@
 from datetime import datetime
+from enum import Enum, auto
 
 import pandas as pd
 from copy import copy
@@ -13,6 +14,7 @@ from collections import namedtuple
 from tda_access import AccountInfo
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
+_OrderData = namedtuple('_Signal', ['direction', 'quantity', 'stop_loss'])
 
 
 # =======
@@ -93,19 +95,33 @@ class SymbolData:
 
     def update_ready(self):
         """True if current time exceeds frequency (ie. new data should be available)"""
-
         return (datetime.now() - self._data.index[-1]) > self._bar_freq
 
-    def attempt_update(self):
+    def update_data(self) -> bool:
         """attempt to get new price history, update strategy"""
-        if api_called := self.update_ready:
+        current_data = self._data.index[-1]
+        new_data = False
+        if self.update_ready:
             self._data = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
                 bench_symbol=self._bench_symbol,
                 equity=tda_access.LocalClient.account_info.equity,
                 freq_range=self._freq_range
             )
-        return api_called
+            if self._data.index[-1] != current_data:
+                new_data = True
+            else:
+                print('price history called, but no new data')
+        return new_data
+
+    def parse_signal(self) -> t.Union[_OrderData, None]:
+        order_data = None
+        current_bar = self._data.iloc[-1]
+        # for eqty_risk_lot, short position lot will be negative if valid. so multiply by signal to get the true lot
+        if position_size * current_bar.signal > 0:
+            order_data = _OrderData(direction=signal, quantity=position_size, stop_loss=self._data.stop_loss)
+
+        return order_data
 
 
 class AccountManager:
@@ -128,14 +144,13 @@ class AccountManager:
         # self.reload_meta_dfs()
         self.run_manager()
 
-
     def update_managed_symbols(self):
         """
         :return:
         """
         updated_symbols = []
         for symbol_data in self.managed:
-            symbol_data.attempt_update()
+            symbol_data.update_data()
 
     def run_manager(self):
         """
@@ -165,10 +180,6 @@ class AccountManager:
                     pass
 
 
-class Closed:
-    pass
-
-
 def init_states(active_symbols: t.List[str], signal_data: t.Iterable[SymbolData]) -> _TradeStates:
     """
     symbols not passed to AccountManager will not be used by the algorithm.
@@ -188,7 +199,68 @@ def init_states(active_symbols: t.List[str], signal_data: t.Iterable[SymbolData]
     return _TradeStates(managed=managed, not_managed=active_symbols_local)
 
 
+class SymbolState(Enum):
+    REST = auto()
+    ORDER_PENDING = auto()
+    FILLED = auto()
+    ERROR = auto()
+
+
+class SymbolManager:
+    symbol_data: SymbolData
+    account_data: tda_access.AccountInfo
+    trade_state: SymbolState
+
+    order_dict = {
+        SymbolState.REST: {
+            TradeState.BUY: 0,
+            TradeState.SELL: 0,
+            TradeState.CLOSE: 0,
+        },
+        SymbolState.FILLED: {
+            TradeState.BUY
+        }
+    }
+
+    def __init__(self, symbol_data: SymbolData):
+        self.symbol_data = symbol_data
+        self.account_data = tda_access.LocalClient.account_info
+        self.trade_state = self._init_trade_state()
+
+    def _init_trade_state(self) -> SymbolState:
+        """initialize current trade state of this symbol"""
+        # TODO how unlikely is it that order is pending during initialization?
+        state = SymbolState.REST
+        if self.account_data.positions.get(self.symbol_data.name, default=None) is not None:
+            state = SymbolState.FILLED
+        return state
+
+    def filled(self):
+        if self.symbol_data.update_data():
+            if new_order:=self.symbol_data.parse_signal() is not None:
+                pass
+                self.trade_state = SymbolState.ORDER_PENDING
+            else:
+                """remain in current state"""
+
+    def rest(self):
+        if self.symbol_data.update_data():
+            if new_order := self.symbol_data.parse_signal() is not None:
+                # TODO built order spec, execute order
+                order_spec = 0
+                order = tda_access.LocalClient.place_order_spec()
+                self.trade_state = SymbolState.ORDER_PENDING
+            else:
+                """remain in current state"""
 
 
 
+if __name__ == '__main__':
+    data = SymbolData('GPRO', 'SPX', tdargs.freqs.day.range(tdargs.periods.y2))
+    current_bar_data = data.data.iloc[-1]
+    signal = current_bar_data.signal
+    stop_loss = current_bar_data.stop_loss
+    position_size = current_bar_data.eqty_risk_lot
+
+    print('done.')
 

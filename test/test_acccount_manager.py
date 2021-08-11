@@ -78,6 +78,5 @@ def test_get_minimum_freq():
     assert (datetime.now() - prev_bar) > freq
 
 
-
 if __name__ == '__main__':
-    scratch_update_check()
+    test_get_minimum_freq()

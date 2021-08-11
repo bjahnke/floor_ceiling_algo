@@ -2,6 +2,7 @@ import trade_df
 from trade_df import tdargs
 from typing import List
 
+
 def init_mdfs(symbols: List[str], freq_range: tdargs.FreqRangeArgs) -> List[trade_df.PriceMdf]:
     """
     :param symbols:
