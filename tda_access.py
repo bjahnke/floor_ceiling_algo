@@ -48,17 +48,20 @@ class Side(Enum):
     CLOSE = 0
 
 
+CLOSE_ORDER = {
+    Side.LONG: lambda sym, qty: toe.equity_sell_market(sym, qty),
+    Side.SHORT: lambda sym, qty: toe.equity_buy_to_cover_market(sym, qty),
+}
+
+
+OPEN_ORDER = {
+    Side.LONG: lambda sym, qty: toe.equity_buy_market(sym, qty),
+    Side.SHORT: lambda sym, qty: toe.equity_sell_short_market(sym, qty),
+}
+
+
 @dataclass
 class Position:
-    _CLOSE_ORDER = {
-        Side.LONG: lambda sym, qty: toe.equity_sell_market(sym, qty),
-        Side.SHORT: lambda sym, qty: toe.equity_buy_to_cover_market(sym, qty),
-    }
-    _OPEN_ORDER = {
-        Side.LONG: lambda sym, qty: toe.equity_buy_market(sym, qty),
-        Side.SHORT: lambda sym, qty: toe.equity_sell_short_market(sym, qty),
-    }
-
     raw_position: dict
     symbol: str = field(init=False)
     value: int = field(init=False)
@@ -80,10 +83,10 @@ class Position:
         return self._side
 
     def full_close(self):
-        Position._CLOSE_ORDER[self._side](self.symbol, self.qty)
+        CLOSE_ORDER[self._side](self.symbol, self.qty)
 
     def open(self, quantity):
-        Position._OPEN_ORDER[self._side](self.symbol, quantity)
+        OPEN_ORDER[self._side](self.symbol, quantity)
 
 
 @dataclass
@@ -94,6 +97,7 @@ class AccountInfo:
     liquid_funds: float = field(init=False)
     buy_power: float = field(init=False)
     _positions: t.Dict[str, Position] = field(init=False)
+    _pending_orders: t.Dict[int, str] = field(init=False)
 
     def __post_init__(self):
         cur_balance = self.acct_data_raw['securitiesAccount']['currentBalances']
@@ -105,22 +109,37 @@ class AccountInfo:
             for pos in self.acct_data_raw['securitiesAccount']['positions']
             if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
+        self._pending_orders = self._parse_order_statuses()
 
     @property
     def positions(self):
         return self._positions
 
+    @property
+    def raw_orders(self):
+        return self.acct_data_raw['securitiesAccount']['orderStrategies']
+
+    @property
+    def pending_orders(self):
+        return self._pending_orders
+
     def get_position_info(self, symbol: str) -> t.Union[Position, None]:
         return self._positions.get(symbol, None)
 
-    def get_symbols(self):
+    def get_symbols(self) -> t.List:
         return [symbol for symbol, _ in self._positions.items()]
+
+    def _parse_order_statuses(self) -> t.Dict[int, str]:
+        """for convenient lookup of order status"""
+        raw_orders = self.acct_data_raw['securitiesAccount']['orderStrategies']
+        return {order['orderId']: order['status'] for order in raw_orders}
 
 
 class _LocalClientMeta(type):
     tda_credentials = dict()
     _ACCOUNT_ID: int
     _TDA_CLIENT: tda.client.Client
+    account_info: AccountInfo
 
     _ACCOUNT_ID = credentials.ACCOUNT_ID
     _TDA_CLIENT = tda.auth.easy_client(
@@ -152,8 +171,10 @@ class _LocalClientMeta(type):
             statuses=statuses
         ).json()
 
-    def place_order_spec(cls, order_spec):
-        return cls._TDA_CLIENT.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
+    def place_order_spec(cls, order_spec) -> int:
+        """place order with tda-api order spec, return order id"""
+        cls._TDA_CLIENT.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
+        return cls.account_info.raw_orders[0]['orderId']
 
     def close_position(cls, symbol):
         position = cls.account_info.positions.get(symbol, None)
@@ -166,6 +187,7 @@ class _LocalClientMeta(type):
 
 # create td client
 class LocalClient(metaclass=_LocalClientMeta):
+    account_info: AccountInfo
 
     @classmethod
     def price_history(
@@ -220,7 +242,6 @@ class LocalClient(metaclass=_LocalClientMeta):
 
 
 def test_order():
-
     # order = toe.equity_buy_market('GPRO', 1)
     # pretend
     order_id = 4662112223
@@ -231,4 +252,7 @@ def test_order():
 
 
 if __name__ == '__main__':
-    test_order()
+    res = LocalClient.place_order_spec(toe.equity_buy_market('NIHK', 1))
+    ac = LocalClient.account_info
+    print('done.')
+

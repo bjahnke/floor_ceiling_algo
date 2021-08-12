@@ -40,22 +40,13 @@ def get_minimum_freq(date_times: t.Iterable[Timestamp]) -> Timedelta:
     return minimum
 
 
-class TradeState:
-    """
-    """
-    PENDING = -2
-    SELL = -1
-    CLOSE = 0
-    BUY = 1
+
 
 
 class Input:
     BUY = 1
     SELL = -1
     CLOSE = pd.NA
-
-
-TS = TradeState
 
 
 class SymbolData:
@@ -114,13 +105,16 @@ class SymbolData:
                 print('price history called, but no new data')
         return new_data
 
-    def parse_signal(self) -> t.Union[_OrderData, None]:
-        order_data = None
+    def parse_signal(self) -> _OrderData:
+        """get order data from current bar"""
         current_bar = self._data.iloc[-1]
-        # for eqty_risk_lot, short position lot will be negative if valid. so multiply by signal to get the true lot
-        if position_size * current_bar.signal > 0:
-            order_data = _OrderData(direction=signal, quantity=position_size, stop_loss=self._data.stop_loss)
-
+        order_data = _OrderData(
+            direction=signal,
+            # for eqty_risk_lot, short position lot will be negative if valid.
+            # so multiply by signal to get the true lot
+            quantity=position_size * current_bar.signal,
+            stop_loss=self._data.stop_loss
+        )
         return order_data
 
 
@@ -210,22 +204,13 @@ class SymbolManager:
     symbol_data: SymbolData
     account_data: tda_access.AccountInfo
     trade_state: SymbolState
-
-    order_dict = {
-        SymbolState.REST: {
-            TradeState.BUY: 0,
-            TradeState.SELL: 0,
-            TradeState.CLOSE: 0,
-        },
-        SymbolState.FILLED: {
-            TradeState.BUY
-        }
-    }
+    order_id: t.Union[int, None]
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
         self.account_data = tda_access.LocalClient.account_info
         self.trade_state = self._init_trade_state()
+        self.order_id = None
 
     def _init_trade_state(self) -> SymbolState:
         """initialize current trade state of this symbol"""
@@ -236,7 +221,8 @@ class SymbolManager:
         return state
 
     def filled(self):
-        if self.symbol_data.update_data():
+        if self.symbol_data.update_data() is True:
+
             if new_order:=self.symbol_data.parse_signal() is not None:
                 pass
                 self.trade_state = SymbolState.ORDER_PENDING
@@ -245,13 +231,17 @@ class SymbolManager:
 
     def rest(self):
         if self.symbol_data.update_data():
-            if new_order := self.symbol_data.parse_signal() is not None:
-                # TODO built order spec, execute order
-                order_spec = 0
-                order = tda_access.LocalClient.place_order_spec()
+
+            order_data = self.symbol_data.parse_signal()
+            order_spec = tda_access.OPEN_ORDER.get(order_data.direction, None)
+            if order_spec is not None:
+                self.order_id = tda_access.LocalClient.place_order_spec(order_spec)
                 self.trade_state = SymbolState.ORDER_PENDING
             else:
-                """remain in current state"""
+                """no signal, remain in current state"""
+
+    def order_pending(self):
+        order = tda_access.LocalClient.account_info.pending_orders.get(self.order_id, None)
 
 
 
