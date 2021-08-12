@@ -4,6 +4,7 @@ from enum import Enum, auto
 import pandas as pd
 from copy import copy
 
+import tda.client
 from pandas import Timestamp, Timedelta
 
 import fc_data_gen
@@ -12,6 +13,8 @@ import typing as t
 import tdargs
 from collections import namedtuple
 from tda_access import AccountInfo
+
+OrderStatus = tda.client.Client.Order.Status
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
 _OrderData = namedtuple('_Signal', ['direction', 'quantity', 'stop_loss'])
@@ -231,18 +234,22 @@ class SymbolManager:
 
     def rest(self):
         if self.symbol_data.update_data():
-
             order_data = self.symbol_data.parse_signal()
             order_spec = tda_access.OPEN_ORDER.get(order_data.direction, None)
             if order_spec is not None:
                 self.order_id = tda_access.LocalClient.place_order_spec(order_spec)
-                self.trade_state = SymbolState.ORDER_PENDING
+                order_status = tda_access.LocalClient.cached_account_info.orders[self.order_id]
+                if order_status == OrderStatus.FILLED:
+                    self.trade_state = SymbolState.FILLED
+                elif order_status == OrderStatus.REJECTED:
+                    self.trade_state = SymbolState.ERROR
+                else:
+                    self.trade_state = SymbolState.ORDER_PENDING
             else:
                 """no signal, remain in current state"""
 
     def order_pending(self):
-        order = tda_access.LocalClient.account_info.pending_orders.get(self.order_id, None)
-
+        order = tda_access.LocalClient.account_info.orders.get(self.order_id, None)
 
 
 if __name__ == '__main__':
