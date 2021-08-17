@@ -88,7 +88,7 @@ class SymbolData:
         return self._bar_freq
 
     def update_ready(self):
-        """True if current time exceeds frequency (ie. new data should be available)"""
+        """check if new bar is ready to be retrieved, prevents redundant API calls"""
         return (datetime.now() - self._data.index[-1]) > self._bar_freq
 
     def update_data(self) -> bool:
@@ -111,14 +111,13 @@ class SymbolData:
     def parse_signal(self) -> _OrderData:
         """get order data from current bar"""
         current_bar = self._data.iloc[-1]
-        order_data = _OrderData(
+        return _OrderData(
             direction=signal,
             # for eqty_risk_lot, short position lot will be negative if valid.
             # so multiply by signal to get the true lot
             quantity=position_size * current_bar.signal,
             stop_loss=self._data.stop_loss
         )
-        return order_data
 
 
 class AccountManager:
@@ -215,6 +214,24 @@ class SymbolManager:
         self.trade_state = self._init_trade_state()
         self.order_id = None
 
+    @property
+    def entry_bar(self):
+        """
+        get entry time via order id,
+        get bar
+        """
+        return
+
+    def update_trade_state(self):
+        """update trade state"""
+        state_lookup = {
+            SymbolState.FILLED: self.filled,
+            SymbolState.REST: self.rest,
+            SymbolState.ORDER_PENDING: self.order_pending,
+            SymbolState.ERROR: self.error
+        }
+        state_lookup[self.trade_state]()
+
     def _init_trade_state(self) -> SymbolState:
         """initialize current trade state of this symbol"""
         # TODO how unlikely is it that order is pending during initialization?
@@ -225,31 +242,56 @@ class SymbolManager:
 
     def filled(self):
         if self.symbol_data.update_data() is True:
-
-            if new_order:=self.symbol_data.parse_signal() is not None:
-                pass
-                self.trade_state = SymbolState.ORDER_PENDING
+            order_data = self.symbol_data.parse_signal()
+            position = tda_access.LocalClient.account_info.positions.get(self.symbol_data.name, None)
+            if position is None:
+                # if no position found for this symbol,
+                # stop loss was triggered or position closed externally
+                self.trade_state = SymbolState.REST
+            elif tda_access.Side(order_data.direction) != position.side:
+                position.full_close()
+                self.trade_state = SymbolState.REST
             else:
                 """remain in current state"""
 
     def rest(self):
         if self.symbol_data.update_data():
             order_data = self.symbol_data.parse_signal()
-            order_spec = tda_access.OPEN_ORDER.get(order_data.direction, None)
-            if order_spec is not None:
-                self.order_id = tda_access.LocalClient.place_order_spec(order_spec)
-                order_status = tda_access.LocalClient.cached_account_info.orders[self.order_id]
-                if order_status == OrderStatus.FILLED:
-                    self.trade_state = SymbolState.FILLED
-                elif order_status == OrderStatus.REJECTED:
-                    self.trade_state = SymbolState.ERROR
-                else:
-                    self.trade_state = SymbolState.ORDER_PENDING
+            order_lambda = tda_access.OPEN_ORDER.get(
+                tda_access.Side(order_data.direction),
+                None
+            )
+            # no order template corresponding to the current signal val means trade signal not given
+            if order_lambda is not None:
+                self.order_id = tda_access.LocalClient.place_order_spec(
+                    order_lambda(self.symbol_data.name, order_data.quantity)
+                )
+                # TODO implement stop_loss
+                # stop_loss_lambda
+                # stop_loss_id = tda_access.LocalClient.place_order_spec(
+                #     order_lambda(self.)
+                # )
+
+                self.order_pending(tda_access.LocalClient.cached_account_info)
             else:
                 """no signal, remain in current state"""
 
-    def order_pending(self):
-        order = tda_access.LocalClient.account_info.orders.get(self.order_id, None)
+    def order_pending(self, account_info=None):
+        """resolve the status of the current order (self.order_id is id of the current order)"""
+        if account_info is None:
+            order_status = tda_access.LocalClient.account_info.orders[self.order_id]
+        else:
+            order_status = account_info.orders[self.order_id]
+
+        if order_status == OrderStatus.FILLED:
+            self.trade_state = SymbolState.FILLED
+        elif order_status == OrderStatus.REJECTED:
+            self.trade_state = SymbolState.ERROR
+        else:
+            self.trade_state = SymbolState.ORDER_PENDING
+
+    def error(self):
+        """do nothing, remain in error state"""
 
 
 if __name__ == '__main__':
