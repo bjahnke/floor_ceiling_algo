@@ -6,6 +6,9 @@ analyzing order/balance/position history
 TODO order history?
 """
 import datetime
+
+from tda.orders.common import OrderType
+
 import credentials
 from time import sleep, perf_counter
 
@@ -59,6 +62,15 @@ CLOSE_ORDER = {
 OPEN_ORDER = {
     Side.LONG: lambda sym, qty: toe.equity_buy_market(sym, qty),
     Side.SHORT: lambda sym, qty: toe.equity_sell_short_market(sym, qty),
+}
+
+
+OPEN_STOP = {
+    Side.LONG: lambda sym, qty, stop_price: (
+        toe.equity_buy_to_cover_market(sym, qty)
+        .set_order_type(OrderType.STOP)
+        .set_stop_price(stop_price)
+    )
 }
 
 
