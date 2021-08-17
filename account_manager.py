@@ -43,9 +43,6 @@ def get_minimum_freq(date_times: t.Iterable[Timestamp]) -> Timedelta:
     return minimum
 
 
-
-
-
 class Input:
     BUY = 1
     SELL = -1
@@ -213,6 +210,7 @@ class SymbolManager:
         self.account_data = tda_access.LocalClient.account_info
         self.trade_state = self._init_trade_state()
         self.order_id = None
+        self.stop_order_id = None
 
     @property
     def entry_bar(self):
@@ -250,6 +248,8 @@ class SymbolManager:
                 self.trade_state = SymbolState.REST
             elif tda_access.Side(order_data.direction) != position.side:
                 position.full_close()
+                self.order_id = None
+                self.stop_order_id = None
                 self.trade_state = SymbolState.REST
             else:
                 """remain in current state"""
@@ -263,29 +263,38 @@ class SymbolManager:
             )
             # no order template corresponding to the current signal val means trade signal not given
             if order_lambda is not None:
-                self.order_id = tda_access.LocalClient.place_order_spec(
+                self.order_id, order_status = tda_access.LocalClient.place_order_spec(
                     order_lambda(self.symbol_data.name, order_data.quantity)
                 )
-                # TODO implement stop_loss
-                # stop_loss_lambda
-                # stop_loss_id = tda_access.LocalClient.place_order_spec(
-                #     order_lambda(self.)
-                # )
-
-                self.order_pending(tda_access.LocalClient.cached_account_info)
+                stop_loss_lambda = tda_access.OPEN_STOP[tda_access.Side(order_data.direction)]
+                self.stop_order_id = tda_access.LocalClient.place_order_spec(
+                    stop_loss_lambda(
+                        sym=self.symbol_data.name,
+                        qty=order_data.quantity,
+                        stop_price=order_data.stop_loss
+                    )
+                )
+                self.order_pending(tda_access.LocalClient.cached_orders[self.order_id])
             else:
                 """no signal, remain in current state"""
 
-    def order_pending(self, account_info=None):
+    def order_pending(self, order_info: t.Dict[int: t.Dict] = None):
         """resolve the status of the current order (self.order_id is id of the current order)"""
-        if account_info is None:
-            order_status = tda_access.LocalClient.account_info.orders[self.order_id]
-        else:
-            order_status = account_info.orders[self.order_id]
+        if order_info is None:
+            order_info = tda_access.LocalClient.orders_by_id()[self.order_id]
 
-        if order_status == OrderStatus.FILLED:
+        if order_info['status'] == OrderStatus.FILLED:
+
+            stop_loss_lambda = tda_access.OPEN_STOP[tda_access.Side(order_data.direction)]
+            self.stop_order_id = tda_access.LocalClient.place_order_spec(
+                stop_loss_lambda(
+                    sym=self.symbol_data.name,
+                    qty=order_info['quantity'],
+                    stop_price=order_data.stop_loss
+                )
+            )
             self.trade_state = SymbolState.FILLED
-        elif order_status == OrderStatus.REJECTED:
+        elif order_info['status'] == OrderStatus.REJECTED:
             self.trade_state = SymbolState.ERROR
         else:
             self.trade_state = SymbolState.ORDER_PENDING

@@ -20,9 +20,14 @@ from dataclasses import dataclass, field
 import typing as t
 from enum import Enum
 import tda.orders.equities as toe
+import tda.orders.common as toc
 import json
 
 OrderStatus = tda.client.Client.Order.Status
+
+
+def parse_orders(orders: t.List[t.Dict]) -> t.Dict[int, t.Dict]:
+    return {order['orderId']: order for order in orders}
 
 
 def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
@@ -67,10 +72,15 @@ OPEN_ORDER = {
 
 OPEN_STOP = {
     Side.LONG: lambda sym, qty, stop_price: (
+        toe.equity_sell_market(sym, qty)
+        .set_order_type(OrderType.STOP)
+        .set_stop_price(stop_price)
+    ),
+    Side.SHORT: lambda sym, qty, stop_price: (
         toe.equity_buy_to_cover_market(sym, qty)
         .set_order_type(OrderType.STOP)
         .set_stop_price(stop_price)
-    )
+    ),
 }
 
 
@@ -143,16 +153,17 @@ class AccountInfo:
     def get_symbols(self) -> t.List:
         return [symbol for symbol, _ in self._positions.items()]
 
-    def _parse_order_statuses(self) -> t.Dict[int, str]:
+    def _parse_order_statuses(self) -> t.Dict[int, t.Dict]:
         """for convenient lookup of order status"""
         raw_orders = self.acct_data_raw['securitiesAccount']['orderStrategies']
-        return {order['orderId']: order['status'] for order in raw_orders}
+        return parse_orders(raw_orders)
 
 
 class _LocalClientMeta(type):
     account_info: AccountInfo
     cached_account_info: AccountInfo
     _cached_account_info: t.Union[None, AccountInfo] = None
+    _cached_orders: t.List[t.Dict] = None
     _ACCOUNT_ID: int = credentials.ACCOUNT_ID
     _TDA_CLIENT: tda.client.Client = tda.auth.easy_client(
         webdriver_func=selenium.webdriver.Firefox,
@@ -173,7 +184,7 @@ class _LocalClientMeta(type):
         with open('account_data.json', 'w') as outfile:
             json.dump(account_info_raw, outfile, indent=4)
         cls._cached_account_info = AccountInfo(account_info_raw)
-        return cls.account_info
+        return cls._cached_account_info
 
     @property
     def cached_account_info(cls) -> AccountInfo:
@@ -181,17 +192,27 @@ class _LocalClientMeta(type):
             cls._cached_account_info = cls.account_info
         return cls._cached_account_info
 
-    def orders(self, status: OrderStatus = None):
-        return self._TDA_CLIENT.get_orders_by_path(
-            account_id=self._ACCOUNT_ID,
+    def orders(cls, status: OrderStatus = None):
+        cls._cached_orders = cls._TDA_CLIENT.get_orders_by_path(
+            account_id=cls._ACCOUNT_ID,
             from_entered_datetime=datetime.datetime.utcnow() - datetime.timedelta(days=59),
             status=status
         ).json()
+        return cls._cached_orders
 
-    def place_order_spec(cls, order_spec) -> int:
+    def orders_by_id(cls, status: OrderStatus = None):
+        return parse_orders(cls.orders(status))
+
+
+    @property
+    def cached_orders(cls):
+        return cls.cached_orders
+
+    def place_order_spec(cls, order_spec) -> t.Tuple[int, str]:
         """place order with tda-api order spec, return order id"""
         cls._TDA_CLIENT.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
-        return cls.orders()[0]['orderId']
+        order_data = cls.orders()[0]
+        return order_data['orderId'], order_data['status']
 
     def close_position(cls, symbol):
         position = cls.account_info.positions.get(symbol, None)
@@ -270,9 +291,10 @@ def test_order():
 
 
 if __name__ == '__main__':
-    res = LocalClient.place_order_spec(toe.equity_buy_market('AZRX', 1))
-    ac = LocalClient.account_info
-    orders = LocalClient.orders()
-    rej_orders = LocalClient.orders(OrderStatus.REJECTED)
+    o = LocalClient.account_info.orders
+    # res = LocalClient.place_order_spec(toe.equity_buy_market('AZRX', 1))
+    # ac = LocalClient.account_info
+    # orders = LocalClient.orders()
+    # rej_orders = LocalClient.orders(OrderStatus.REJECTED)
     print('done.')
 
