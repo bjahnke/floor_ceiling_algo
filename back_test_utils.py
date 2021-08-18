@@ -433,6 +433,9 @@ def swings(
     high_low[swing_high_low] = np.where(
         np.isnan(high_low[swing_high_low]), 0, high_low[swing_high_low])
     # If last_sign <0: swing high, if > 0 swing low
+    if len(high_low[swing_high_low]) == 0:
+        raise NoSwingsError('Quit swing calc. high[swing_high_low] is empty')
+
     last_sign = np.sign(high_low[swing_high_low][-1])
 
     # Step 8: Instantiate last swing high and low dates

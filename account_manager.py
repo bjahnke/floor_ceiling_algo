@@ -50,9 +50,9 @@ class Input:
 
 class SymbolData:
     _name: str
-    _data: pd.DataFrame
+    _data: t.Union[None, pd.DataFrame]
     _update_price_history: t.Callable[[], pd.DataFrame]
-    _bar_freq: Timedelta
+    _bar_freq: t.Union[None, Timedelta]
 
     def __init__(
         self,
@@ -63,13 +63,8 @@ class SymbolData:
         self._name = base_symbol
         self._bench_symbol = bench_symbol
         self._freq_range = freq_range
-        self._data = fc_data_gen.init_fc_data(
-            base_symbol=self._name,
-            bench_symbol=self._bench_symbol,
-            equity=tda_access.LocalClient.account_info().equity,
-            freq_range=self._freq_range
-        )
-        self._bar_freq = get_minimum_freq(self._data.index)
+        self._data = None
+        self._bar_freq = None
 
     @property
     def name(self):
@@ -89,30 +84,37 @@ class SymbolData:
 
     def update_data(self) -> bool:
         """attempt to get new price history, update strategy"""
-        current_data = self._data.index[-1]
         new_data = False
-        if self.update_ready:
-            self._data = fc_data_gen.init_fc_data(
-                base_symbol=self._name,
-                bench_symbol=self._bench_symbol,
-                equity=tda_access.LocalClient.account_info().equity,
-                freq_range=self._freq_range
-            )
+        if self._data is None:
+            self._data = self.fetch_data()
+            self._bar_freq = get_minimum_freq(self._data.index)
+            new_data = True
+        elif self.update_ready:
+            current_data = self._data.index[-1]
+            self._data = self.fetch_data()
             if self._data.index[-1] != current_data:
                 new_data = True
             else:
                 print('price history called, but no new data')
         return new_data
 
+    def fetch_data(self):
+        return fc_data_gen.init_fc_data(
+            base_symbol=self._name,
+            bench_symbol=self._bench_symbol,
+            equity=tda_access.LocalClient.account_info().equity,
+            freq_range=self._freq_range
+        )
+
     def parse_signal(self) -> tda_access.OrderData:
         """get order data from current bar"""
         current_bar = self._data.iloc[-1]
         return tda_access.OrderData(
-            direction=signal,
+            direction=tda_access.Side(current_bar.signal),
             # for eqty_risk_lot, short position lot will be negative if valid.
             # so multiply by signal to get the true lot
-            quantity=position_size * current_bar.signal,
-            stop_loss=self._data.stop_loss
+            quantity=current_bar.eqty_risk_lot * current_bar.signal,
+            stop_loss=current_bar.stop_loss
         )
 
 
@@ -158,7 +160,7 @@ class SymbolManager:
         """initialize current trade state of this symbol"""
         # TODO how unlikely is it that order is pending during initialization?
         state = SymbolState.REST
-        if self.account_data.positions.get(self.symbol_data.name, default=None) is not None:
+        if self.account_data.positions.get(self.symbol_data.name, None) is not None:
             state = SymbolState.FILLED
         return state
 
@@ -183,7 +185,7 @@ class SymbolManager:
         if self.symbol_data.update_data():
             order_data = self.symbol_data.parse_signal()
             order_lambda = tda_access.OPEN_ORDER.get(
-                tda_access.Side(order_data.direction),
+                order_data.direction,
                 None
             )
             # no order template corresponding to the current signal val means trade signal not given
@@ -208,10 +210,10 @@ class SymbolManager:
                 new_trade_state = SymbolState.REST
             return new_trade_state
 
-    def order_pending(self, order_info: t.Dict[int: t.Dict] = None):
+    def order_pending(self, order_info: t.Dict = None):
         """resolve the status of the current order (self.order_id is id of the current order)"""
         if order_info is None:
-            order_info = tda_access.LocalClient.account_info().positions[self.symbol_data.name]
+            order_info = tda_access.LocalClient.get_order_data(order_id=self.order_id)
 
         if order_info['status'] == OrderStatus.FILLED:
             new_trade_state = SymbolState.FILLED
@@ -276,7 +278,8 @@ def init_states(active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]
 
     for data in symbol_data:
         managed.append(SymbolManager(data))
-        active_symbols_local.remove(data.name)
+        if data.name in active_symbols_local:
+            active_symbols_local.remove(data.name)
     # positions remaining in active symbols will not be touch by the algo
     return _TradeStates(managed=managed, not_managed=active_symbols_local)
 

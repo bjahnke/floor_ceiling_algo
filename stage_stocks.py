@@ -4,19 +4,5 @@ from account_manager import SymbolData, AccountManager
 
 if __name__ == '__main__':
     AccountManager(
-        SymbolData(
-            """put something here"""
-        ),
-        SymbolData(
-            """put something here"""
-        ),
-        SymbolData(
-            """put something here"""
-        ),
-        SymbolData(
-            """put something here"""
-        ),
-        SymbolData(
-            """put something here"""
-        ),
+        SymbolData('AFL', 'SPX')
     )

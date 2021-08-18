@@ -136,7 +136,7 @@ class AccountInfo:
             for pos in self.acct_data_raw['securitiesAccount']['positions']
             if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
-        self._pending_orders = self._parse_order_statuses()
+        # self._pending_orders = self._parse_order_statuses()
 
     @property
     def positions(self):
@@ -146,9 +146,9 @@ class AccountInfo:
     def raw_orders(self):
         return self.acct_data_raw['securitiesAccount']['orderStrategies']
 
-    @property
-    def orders(self) -> t.Dict[int, t.Dict]:
-        return self._pending_orders
+    # @property
+    # def orders(self) -> t.Dict[int, t.Dict]:
+    #     return self._pending_orders
 
     def get_position_info(self, symbol: str) -> t.Union[Position, None]:
         return self._positions.get(symbol, None)
@@ -156,10 +156,10 @@ class AccountInfo:
     def get_symbols(self) -> t.List:
         return [symbol for symbol, _ in self._positions.items()]
 
-    def _parse_order_statuses(self) -> t.Dict[int, t.Dict]:
-        """for convenient lookup of order status"""
-        raw_orders = self.acct_data_raw['securitiesAccount']['orderStrategies']
-        return parse_orders(raw_orders)
+    # def _parse_order_statuses(self) -> t.Dict[int, t.Dict]:
+    #     """for convenient lookup of order status"""
+    #     raw_orders = self.acct_data_raw['securitiesAccount']['orderStrategies']
+    #     return parse_orders(raw_orders)
 
 
 class _LocalClientMeta(type):
@@ -202,7 +202,7 @@ class _LocalClientMeta(type):
     def get_order_data(cls, order_id, cached=False) -> OrderData:
         dir_to_enum = {
             'BUY': Side.LONG,
-            'SELL': Side.SHORT
+            'SELL_SHORT': Side.SHORT
         }
         order = cls.orders_by_id(cached=cached)[order_id]
         direction = dir_to_enum[order['orderLegCollection'][0]['instruction']]

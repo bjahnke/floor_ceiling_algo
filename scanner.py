@@ -14,7 +14,7 @@ from dotmap import DotMap
 import tda_access
 from back_test_utils import NoSwingsError
 
-account_info = tda_access.LocalClient.account_info
+account_info = tda_access.LocalClient.account_info()
 
 
 def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
@@ -160,7 +160,7 @@ if __name__ == '__main__':
         }
     ).read().decode().split()
     start = time()
-    main(symbols=['GPRO'], bench='SPX')
+    main(symbols=['AFL'], bench='SPX')
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
 
