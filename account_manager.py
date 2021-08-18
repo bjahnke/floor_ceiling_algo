@@ -17,7 +17,6 @@ from tda_access import AccountInfo
 OrderStatus = tda.client.Client.Order.Status
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
-_OrderData = namedtuple('_Signal', ['direction', 'quantity', 'stop_loss'])
 
 
 # =======
@@ -25,7 +24,7 @@ _OrderData = namedtuple('_Signal', ['direction', 'quantity', 'stop_loss'])
 # =======
 
 
-def get_minimum_freq(date_times: t.Iterable[Timestamp]) -> Timedelta:
+def get_minimum_freq(date_times: pd.Index) -> Timedelta:
     """
     get the minimum frequency across a series of timestamps.
     Used to determine frequency of a series while taking into
@@ -67,7 +66,7 @@ class SymbolData:
         self._data = fc_data_gen.init_fc_data(
             base_symbol=self._name,
             bench_symbol=self._bench_symbol,
-            equity=tda_access.LocalClient.account_info.equity,
+            equity=tda_access.LocalClient.account_info().equity,
             freq_range=self._freq_range
         )
         self._bar_freq = get_minimum_freq(self._data.index)
@@ -96,7 +95,7 @@ class SymbolData:
             self._data = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
                 bench_symbol=self._bench_symbol,
-                equity=tda_access.LocalClient.account_info.equity,
+                equity=tda_access.LocalClient.account_info().equity,
                 freq_range=self._freq_range
             )
             if self._data.index[-1] != current_data:
@@ -105,91 +104,16 @@ class SymbolData:
                 print('price history called, but no new data')
         return new_data
 
-    def parse_signal(self) -> _OrderData:
+    def parse_signal(self) -> tda_access.OrderData:
         """get order data from current bar"""
         current_bar = self._data.iloc[-1]
-        return _OrderData(
+        return tda_access.OrderData(
             direction=signal,
             # for eqty_risk_lot, short position lot will be negative if valid.
             # so multiply by signal to get the true lot
             quantity=position_size * current_bar.signal,
             stop_loss=self._data.stop_loss
         )
-
-
-class AccountManager:
-    managed: t.List[SymbolData]
-    """
-    TODO:
-        - dump MDF creation parameters for all symbols to json file
-        - dump price history data to excel file
-        - when loading active positions from account, load MDF params and excel data
-    """
-
-    def __init__(self, *signal_data: SymbolData):
-        self._account_info = tda_access.LocalClient.account_info
-        self.signal_data = signal_data
-        trade_states = init_states(self._account_info.get_symbols(), self.signal_data)
-        # symbols AccountManager is actively trading
-        self.managed = trade_states.managed
-        # symbols we have active positions in but are not being managed by AccountManager for this run-time
-        self.not_managed = trade_states.not_managed
-        # self.reload_meta_dfs()
-        self.run_manager()
-
-    def update_managed_symbols(self):
-        """
-        :return:
-        """
-        updated_symbols = []
-        for symbol_data in self.managed:
-            symbol_data.update_data()
-
-    def run_manager(self):
-        """
-        TODO:
-            1.) update date for staged and active symbols
-            3.) for each staged symbol that updated:
-                - (create order if force trade flag is true?) else:
-                - get signal and abs(position size) from most recent row
-                - if position size is not NaN, create order (1=buy, -1=sell) with position size
-                    -
-        :return:
-        """
-        while True:
-            for symbol, data in self.managed.items():
-                position_info = self._account_info.positions.get(symbol, None)
-                current_signal = data.signals.current
-                # TODO if order is pending for this symbol?
-                #   pending orders visible in account info?
-                if position_info is not None:
-                    if current_signal != position_info.side:
-                        # TODO probably close position, even if somehow -1 to 1 or vice versa
-                        pass
-                    pass
-                elif current_signal in [Input.BUY, Input.SELL]:
-                    # TODO attempt to open a position
-
-                    pass
-
-
-def init_states(active_symbols: t.List[str], signal_data: t.Iterable[SymbolData]) -> _TradeStates:
-    """
-    symbols not passed to AccountManager will not be used by the algorithm.
-    Only symbols with data passed in to create AccountManager instance are
-    actively managed by AccountManager.
-    :param active_symbols: symbols with active positions on this account
-    :param signal_data: input signal data that we still want to trade
-    :return:
-    """
-    active_symbols_local = copy(active_symbols)
-    managed = []
-
-    for data in signal_data:
-        managed.append(data)
-        active_symbols_local.remove(data.name)
-    # positions remaining in active symbols will not be touch by the algo
-    return _TradeStates(managed=managed, not_managed=active_symbols_local)
 
 
 class SymbolState(Enum):
@@ -207,7 +131,7 @@ class SymbolManager:
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
-        self.account_data = tda_access.LocalClient.account_info
+        self.account_data = tda_access.LocalClient.account_info(cached=True)
         self.trade_state = self._init_trade_state()
         self.order_id = None
         self.stop_order_id = None
@@ -228,7 +152,7 @@ class SymbolManager:
             SymbolState.ORDER_PENDING: self.order_pending,
             SymbolState.ERROR: self.error
         }
-        state_lookup[self.trade_state]()
+        self.trade_state = state_lookup[self.trade_state]()
 
     def _init_trade_state(self) -> SymbolState:
         """initialize current trade state of this symbol"""
@@ -241,18 +165,19 @@ class SymbolManager:
     def filled(self):
         if self.symbol_data.update_data() is True:
             order_data = self.symbol_data.parse_signal()
-            position = tda_access.LocalClient.account_info.positions.get(self.symbol_data.name, None)
+            position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
             if position is None:
                 # if no position found for this symbol,
                 # stop loss was triggered or position closed externally
-                self.trade_state = SymbolState.REST
+                new_trade_state = SymbolState.REST
             elif tda_access.Side(order_data.direction) != position.side:
                 position.full_close()
                 self.order_id = None
                 self.stop_order_id = None
-                self.trade_state = SymbolState.REST
+                new_trade_state = SymbolState.REST
             else:
-                """remain in current state"""
+                new_trade_state = SymbolState.FILLED
+            return new_trade_state
 
     def rest(self):
         if self.symbol_data.update_data():
@@ -274,38 +199,91 @@ class SymbolManager:
                         stop_price=order_data.stop_loss
                     )
                 )
-                self.order_pending(tda_access.LocalClient.cached_orders[self.order_id])
+                # if order already filled, we can used the cached account info to place stop loss order,
+                # saves us an additional API call
+                new_trade_state = self.order_pending(
+                    tda_access.LocalClient.get_order_data(order_id=self.order_id, cached=True)
+                )
             else:
-                """no signal, remain in current state"""
+                new_trade_state = SymbolState.REST
+            return new_trade_state
 
     def order_pending(self, order_info: t.Dict[int: t.Dict] = None):
         """resolve the status of the current order (self.order_id is id of the current order)"""
         if order_info is None:
-            order_info = tda_access.LocalClient.orders_by_id()[self.order_id]
+            order_info = tda_access.LocalClient.account_info().positions[self.symbol_data.name]
 
         if order_info['status'] == OrderStatus.FILLED:
-
-            stop_loss_lambda = tda_access.OPEN_STOP[tda_access.Side(order_data.direction)]
-            self.stop_order_id = tda_access.LocalClient.place_order_spec(
-                stop_loss_lambda(
-                    sym=self.symbol_data.name,
-                    qty=order_info['quantity'],
-                    stop_price=order_data.stop_loss
-                )
-            )
-            self.trade_state = SymbolState.FILLED
+            new_trade_state = SymbolState.FILLED
         elif order_info['status'] == OrderStatus.REJECTED:
-            self.trade_state = SymbolState.ERROR
+            new_trade_state = SymbolState.ERROR
         else:
-            self.trade_state = SymbolState.ORDER_PENDING
+            new_trade_state = SymbolState.ORDER_PENDING
+        return new_trade_state
 
     def error(self):
         """do nothing, remain in error state"""
 
 
+class AccountManager:
+    managed: t.List[SymbolManager]
+    """
+    TODO:
+        - dump MDF creation parameters for all symbols to json file
+        - dump price history data to excel file
+        - when loading active positions from account, load MDF params and excel data
+    """
+
+    def __init__(self, *signal_data: SymbolData):
+        self._account_info = tda_access.LocalClient.account_info()
+        self.signal_data = signal_data
+        trade_states = init_states(self._account_info.get_symbols(), self.signal_data)
+        # symbols AccountManager is actively trading
+        self.managed = trade_states.managed
+        # symbols we have active positions in but are not being managed by AccountManager for this run-time
+        self.not_managed = trade_states.not_managed
+        # self.reload_meta_dfs()
+        self.run_manager()
+
+    def run_manager(self):
+        """
+        TODO:
+            1.) update date for staged and active symbols
+            3.) for each staged symbol that updated:
+                - (create order if force trade flag is true?) else:
+                - get signal and abs(position size) from most recent row
+                - if position size is not NaN, create order (1=buy, -1=sell) with position size
+                    -
+        :return:
+        """
+
+        while True:
+            for symbol_manager in self.managed:
+                symbol_manager.update_trade_state()
+
+
+def init_states(active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]) -> _TradeStates:
+    """
+    symbols not passed to AccountManager will not be used by the algorithm.
+    Only symbols with data passed in to create AccountManager instance are
+    actively managed by AccountManager.
+    :param active_symbols: symbols with active positions on this account
+    :param symbol_data: input signal data that we still want to trade
+    :return:
+    """
+    active_symbols_local = copy(active_symbols)
+    managed = []
+
+    for data in symbol_data:
+        managed.append(SymbolManager(data))
+        active_symbols_local.remove(data.name)
+    # positions remaining in active symbols will not be touch by the algo
+    return _TradeStates(managed=managed, not_managed=active_symbols_local)
+
+
 if __name__ == '__main__':
-    data = SymbolData('GPRO', 'SPX', tdargs.freqs.day.range(tdargs.periods.y2))
-    current_bar_data = data.data.iloc[-1]
+    da = SymbolData('GPRO', 'SPX', tdargs.freqs.day.range(tdargs.periods.y2))
+    current_bar_data = da.data.iloc[-1]
     signal = current_bar_data.signal
     stop_loss = current_bar_data.stop_loss
     position_size = current_bar_data.eqty_risk_lot
