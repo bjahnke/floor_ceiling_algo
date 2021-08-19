@@ -210,14 +210,14 @@ class SymbolManager:
                 new_trade_state = SymbolState.REST
             return new_trade_state
 
-    def order_pending(self, order_info: t.Dict = None):
+    def order_pending(self, order_info: tda_access.OrderData = None):
         """resolve the status of the current order (self.order_id is id of the current order)"""
         if order_info is None:
             order_info = tda_access.LocalClient.get_order_data(order_id=self.order_id)
 
-        if order_info['status'] == OrderStatus.FILLED:
+        if order_info.status == OrderStatus.FILLED:
             new_trade_state = SymbolState.FILLED
-        elif order_info['status'] == OrderStatus.REJECTED:
+        elif order_info.status == OrderStatus.REJECTED:
             new_trade_state = SymbolState.ERROR
         else:
             new_trade_state = SymbolState.ORDER_PENDING

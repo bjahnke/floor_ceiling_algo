@@ -27,11 +27,36 @@ import json
 
 OrderStatus = tda.client.Client.Order.Status
 
-OrderData = namedtuple('_Signal', ['direction', 'quantity', 'stop_loss'])
+OrderData = namedtuple('OrderData', ['direction', 'quantity', 'stop_loss', 'status'])
+
+
+_ACCOUNT_ID = credentials.ACCOUNT_ID
 
 
 def parse_orders(orders: t.List[t.Dict]) -> t.Dict[int, t.Dict]:
     return {order['orderId']: order for order in orders}
+
+
+def configure_stream(
+        stream_client: tda.streaming.StreamClient,
+        add_book_handler: t.Callable,
+        book_subs,
+        handlers: t.List[t.Callable],
+
+):
+    async def _initiate_stream(*symbols: str):
+        await stream_client.login()
+        await stream_client.quality_of_service(tda.streaming.StreamClient.QOSLevel.EXPRESS)
+
+        for handler in handlers:
+            add_book_handler(handler)
+
+        await book_subs(symbols)
+
+        while True:
+            await stream_client.handle_message()
+
+    return _initiate_stream
 
 
 def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
@@ -166,21 +191,22 @@ class AccountInfo:
 class _LocalClientMeta(type):
     _cached_account_info: t.Union[None, AccountInfo] = None
     _cached_orders: t.List[t.Dict] = None
-    _ACCOUNT_ID: int = credentials.ACCOUNT_ID
+
     _TDA_CLIENT: tda.client.Client = tda.auth.easy_client(
         webdriver_func=selenium.webdriver.Firefox,
         **credentials.CLIENT_PARAMS
     )
-    _STREAM_CLIENT: tda.streaming.StreamClient = tda.streaming.StreamClient(
+    STREAM_CLIENT: tda.streaming.StreamClient = tda.streaming.StreamClient(
         client=_TDA_CLIENT,
         account_id=_ACCOUNT_ID
     )
+
     _stream_data = []
 
     def account_info(cls, cached=False) -> AccountInfo:
         if cached is False or cls._cached_account_info is None:
             resp = LocalClient._TDA_CLIENT.get_account(
-                account_id=cls._ACCOUNT_ID,
+                account_id=_ACCOUNT_ID,
                 fields=[
                     tda.client.Client.Account.Fields.ORDERS,
                     tda.client.Client.Account.Fields.POSITIONS
@@ -196,7 +222,7 @@ class _LocalClientMeta(type):
     def orders(cls, status: OrderStatus = None, cached=False):
         if cached is False or cls._cached_orders is None:
             cls._cached_orders = cls._TDA_CLIENT.get_orders_by_path(
-                account_id=cls._ACCOUNT_ID,
+                account_id=_ACCOUNT_ID,
                 from_entered_datetime=datetime.datetime.utcnow() - datetime.timedelta(days=59),
                 status=status
             ).json()
@@ -213,44 +239,48 @@ class _LocalClientMeta(type):
         order = cls.orders_by_id(cached=cached)[order_id]
         direction = dir_to_enum[order['orderLegCollection'][0]['instruction']]
         quantity = order['filledQuantity']
-        return OrderData(direction=direction, quantity=quantity, stop_loss=None)
+        return OrderData(direction=direction, quantity=quantity, stop_loss=None, status=order['status'])
 
     def place_order_spec(cls, order_spec) -> t.Tuple[int, str]:
         """place order with tda-api order spec, return order id"""
-        cls._TDA_CLIENT.place_order(account_id=cls._ACCOUNT_ID, order_spec=order_spec)
+        cls._TDA_CLIENT.place_order(account_id=_ACCOUNT_ID, order_spec=order_spec)
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
 
-    def close_position(cls, symbol):
-        position = cls.account_info().positions.get(symbol, None)
-        # TODO get the pos
-
     def flush_orders(cls):
         for order in cls.orders():
-            cls._TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=LocalClient._ACCOUNT_ID)
+            cls._TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=_ACCOUNT_ID)
 
-    async def initiate_stream(cls, *symbols: str):
+    def init_listed_stream(cls):
         """
         stream price data of the given symbols every 500ms
         use this code to execute function: asyncio.run(LocalClient.initiate_stream(<enter symbols here>)
         """
-        await cls._STREAM_CLIENT.login()
-        await cls._STREAM_CLIENT.quality_of_service(tda.streaming.StreamClient.QOSLevel.EXPRESS)
+        return configure_stream(
+            stream_client=cls.STREAM_CLIENT,
+            add_book_handler=cls.STREAM_CLIENT.add_listed_book_handler,
+            handlers=[
+                lambda msg: cls._stream_data.append(json.dumps(msg, indent=4))
+            ],
+            book_subs=cls.STREAM_CLIENT.listed_book_subs
 
-        # Always add handlers before subscribing because many streams start sending
-        # data immediately after success, and messages with no handlers are dropped.
-        cls._STREAM_CLIENT.add_listed_book_handler(
-            lambda msg: cls._stream_data.append(json.dumps(msg, indent=4))
         )
-        await cls._STREAM_CLIENT.listed_book_subs(symbols)
 
-        while True:
-            await cls._STREAM_CLIENT.handle_message()
+    def init_futures_stream(cls):
+        return configure_stream(
+            stream_client=cls.STREAM_CLIENT,
+            add_book_handler=cls.STREAM_CLIENT.add_chart_futures_handler,
+            handlers=[
+                lambda msg: cls._stream_data.append(json.dumps(msg, indent=4)),
+                lambda msg: print(json.dumps(msg, indent=4))
+            ],
+            book_subs=cls.STREAM_CLIENT.chart_futures_subs
+        )
 
 
 # create td client
 class LocalClient(metaclass=_LocalClientMeta):
-    cached_account_info: AccountInfo
+    cached_account_info: AccountInfo = None
 
     @classmethod
     def price_history(
@@ -304,11 +334,16 @@ class LocalClient(metaclass=_LocalClientMeta):
         return df
 
 
+# class LocalStreamClient(metaclass=_LocalClientMeta):
+#     """class for streaming related activities"""
+#     _STREAM_CLIENT: tda.streaming.StreamClient = tda.streaming.StreamClient(
+#         client=_TDA_CLIENT,
+#         account_id=_ACCOUNT_ID
+#     )
+
+
 if __name__ == '__main__':
-    o = LocalClient.account_info().positions['GPRO']
-    # res = LocalClient.place_order_spec(toe.equity_buy_market('AZRX', 1))
-    # ac = LocalClient.account_info
-    # orders = LocalClient.orders()
-    # rej_orders = LocalClient.orders(OrderStatus.REJECTED)
-    print('done.')
+    stream_func = LocalClient.init_futures_stream()
+    asyncio.run(stream_func('/MESU21'))
+    print('hi')
 

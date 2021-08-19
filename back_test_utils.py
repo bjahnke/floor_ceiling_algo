@@ -325,7 +325,6 @@ def graph_regime_fc(
     plt.legend()
 
 
-
 # Calculate regime breakout-breakdown
 def regime_breakout_breakdown(
     breakout_period: int,

@@ -1,5 +1,4 @@
 """
-
 """
 import cProfile
 from time import time
@@ -31,7 +30,7 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
         try:
             relative_data = fc_data_gen.init_fc_data(
                 base_symbol=symbol,
-                bench_symbol='SPX',
+                bench_symbol=bench_symbol,
                 equity=account_info.equity,
                 freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
             )
@@ -118,6 +117,7 @@ def regime_scan(
         'close': price_data.b_close[-1],
         'position_size': position_size
     }
+
 
 def cumulative_percent_returns(price_data, regime_change_date, arg2):
     """cumulative percent returns"""
