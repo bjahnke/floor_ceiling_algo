@@ -12,6 +12,7 @@ from tda.orders.common import OrderType
 
 import credentials
 from time import sleep, perf_counter
+import asyncio
 
 import tda
 import selenium.webdriver
@@ -170,6 +171,11 @@ class _LocalClientMeta(type):
         webdriver_func=selenium.webdriver.Firefox,
         **credentials.CLIENT_PARAMS
     )
+    _STREAM_CLIENT: tda.streaming.StreamClient = tda.streaming.StreamClient(
+        client=_TDA_CLIENT,
+        account_id=_ACCOUNT_ID
+    )
+    _stream_data = []
 
     def account_info(cls, cached=False) -> AccountInfo:
         if cached is False or cls._cached_account_info is None:
@@ -222,6 +228,24 @@ class _LocalClientMeta(type):
     def flush_orders(cls):
         for order in cls.orders():
             cls._TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=LocalClient._ACCOUNT_ID)
+
+    async def initiate_stream(cls, *symbols: str):
+        """
+        stream price data of the given symbols every 500ms
+        use this code to execute function: asyncio.run(LocalClient.initiate_stream(<enter symbols here>)
+        """
+        await cls._STREAM_CLIENT.login()
+        await cls._STREAM_CLIENT.quality_of_service(tda.streaming.StreamClient.QOSLevel.EXPRESS)
+
+        # Always add handlers before subscribing because many streams start sending
+        # data immediately after success, and messages with no handlers are dropped.
+        cls._STREAM_CLIENT.add_listed_book_handler(
+            lambda msg: cls._stream_data.append(json.dumps(msg, indent=4))
+        )
+        await cls._STREAM_CLIENT.listed_book_subs(symbols)
+
+        while True:
+            await cls._STREAM_CLIENT.handle_message()
 
 
 # create td client
@@ -278,16 +302,6 @@ class LocalClient(metaclass=_LocalClientMeta):
         df = df[['open', 'high', 'close', 'low']]
 
         return df
-
-
-def test_order():
-    # order = toe.equity_buy_market('GPRO', 1)
-    # pretend
-    order_id = 4662112223
-    # LocalClient.submit_order(order)
-    orders = LocalClient.orders()[0]
-    pos = LocalClient.account_info.positions
-    print('done')
 
 
 if __name__ == '__main__':
