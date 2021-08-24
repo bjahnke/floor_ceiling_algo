@@ -1,13 +1,10 @@
 import matplotlib.pyplot as plt
-import tda
 import pandas as pd
 import numpy as np
-import selenium.webdriver
 import scipy.signal
 import tdargs
-import trade_df
 from datetime import datetime
-from typing import List, Union
+from typing import List
 from tda_access import LocalClient
 import itertools  # construct a list of permutations
 from trade_stats import (
@@ -15,7 +12,6 @@ from trade_stats import (
     cumulative_returns_pct, rolling_profits, hit_rate, average_win,
     average_loss, george, grit_index, calmar_ratio, tail_ratio, t_stat,
     common_sense_ratio, equity_at_risk, get_round_lot
-
 )
 
 class NoSwingsError(Exception):
