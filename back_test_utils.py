@@ -806,11 +806,31 @@ def init_fc_signal_stoploss(
         # Create dataframe
         data = pd.DataFrame()
         data[
-            [relative_close, base_close, r_return_1d, return_1d,
-             r_regime_floorceiling, sw_rebased_low, sw_rebased_high, 'regime_change']
+            [
+                relative_close,
+                base_close,
+                r_return_1d,
+                return_1d,
+                r_regime_floorceiling,
+                sw_rebased_low,
+                sw_rebased_high,
+                'regime_change',
+                'sw_b_low',
+                'sw_b_high'
+            ]
         ] = fc_data[
-            [relative_close, base_close, r_return_1d, return_1d,
-             r_regime_floorceiling, sw_rebased_low, sw_rebased_high, 'regime_change']
+            [
+                relative_close,
+                base_close,
+                r_return_1d,
+                return_1d,
+                r_regime_floorceiling,
+                sw_rebased_low,
+                sw_rebased_high,
+                'regime_change',
+                'sw_b_low',
+                'sw_b_high'
+            ]
         ].copy()
 
         # Calculate moving averages
@@ -847,6 +867,13 @@ def init_fc_signal_stoploss(
             close=data[relative_close],
             s_low=data[sw_rebased_low],
             s_high=data[sw_rebased_high]
+        )
+
+        data['stop_loss_base'] = stop_loss(
+            signal=data['s' + stmt],
+            close=data[base_close],
+            s_low=data['sw_b_low'],
+            s_high=data['sw_b_high']
         )
 
         # Date of initial position to calculate excess returns for passive
@@ -933,196 +960,6 @@ def init_fc_signal_stoploss(
     perf, row, best_rar: variables at a higher state
     high_score: the best results in terms of robustness score()
     
-    """
-    return high_score, perf, row, best_rar
-
-
-def cpy_init_fc_signal_stoploss(
-    fc_data: pd.DataFrame,
-    symbol: str,
-    base_close: str,
-    relative_close: str,
-    st_list: range,
-    mt_list: range,
-    transaction_cost: float,
-    percentile: float,
-    min_periods: int,
-    window: int,
-    limit: int,
-    best_risk_adjusted_returns: int,
-):
-    """
-    TODO
-        return info on selected signal (st mt)
-        improve performance
-    :param fc_data:
-    :param symbol:
-    :param base_close:
-    :param relative_close:
-    :param st_list:
-    :param mt_list:
-    :param transaction_cost:
-    :param percentile:
-    :param min_periods:
-    :param window:
-    :param limit:
-    :param best_risk_adjusted_returns:
-    :return:
-    """
-    perf = pd.DataFrame()
-    best_rar = best_risk_adjusted_returns
-    # ==================================
-    # Beginning of file loop in example
-    # ==================================
-    # Calculate returns for the relative closed price
-    # fc_data['r_return_1d'] = returns(fc_data['rebased_close'])
-    # rets = pd.Series(fc_data['rebased_close'])
-    rets = fc_data[relative_close]
-    r_return_1d = 'r_return_1d'
-    fc_data[r_return_1d] = np.log(rets / rets.shift(1))
-    row = {}
-
-    # Calculate returns for the absolute closed price
-    # fc_data['return_1d'] = returns(fc_data['Close'])
-    rets = fc_data[base_close]
-    return_1d = 'return_1d'
-    fc_data[return_1d] = np.log(rets / rets.shift(1))
-
-    r_regime_floorceiling = 'regime_floorceiling'
-    sw_rebased_low = 'sw_low'
-    sw_rebased_high = 'sw_high'
-    high_score = None
-    for st, mt in itertools.product(st_list, mt_list):
-        if st >= mt:
-            continue
-        # Create dataframe
-        data = pd.DataFrame()
-        data[
-            [relative_close, base_close, r_return_1d, return_1d,
-             r_regime_floorceiling, sw_rebased_low, sw_rebased_high]
-        ] = fc_data[
-            [relative_close, base_close, r_return_1d, return_1d,
-             r_regime_floorceiling, sw_rebased_low, sw_rebased_high]
-        ].copy()
-
-        # Calculate moving averages
-        stmt = str(st) + str(mt)
-        r_st_ma = sma(
-            df=data,
-            price=relative_close,
-            ma_per=st,
-            min_per=1,
-            decimals=2
-        )
-        r_mt_ma = sma(
-            df=data,
-            price=relative_close,
-            ma_per=mt,
-            min_per=1,
-            decimals=2
-        )
-
-        # Calculate positions based on regime and ma cross
-        data['s' + stmt] = signal_fcstmt(
-            regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma
-        )
-
-        signals = data[pd.notnull(data['s' + stmt])]
-        if len(signals) == 0:
-            # no signals found, skip
-            continue
-
-        first_position_dt = signals.index[0]
-
-        data['sl' + stmt] = stop_loss(
-            signal=data['s' + stmt],
-            close=data[relative_close],
-            s_low=data[sw_rebased_low],
-            s_high=data[sw_rebased_high]
-        )
-
-        # Date of initial position to calculate excess returns for passive
-        # Passive stats are recalculated each time because start date changes with stmt sma
-        # TODO move to first_position_dt
-        data_sliced = data[first_position_dt:].copy()
-
-        # Calculate daily & cumulative returns and include transaction costs
-        data_sliced['d' + stmt] = data_sliced['r_return_1d'] * data_sliced['s' + stmt].shift(1)
-        data_sliced['d' + stmt] = transaction_costs(
-            data=data_sliced,
-            position_column='s' + stmt,
-            daily_return='d' + stmt,
-            transaction_cost=transaction_cost
-        )
-
-        # Cumulative performance must be higher than passive or regime (w/o transaction costs)
-        passive_1d = data_sliced['r_return_1d']
-        returns = data_sliced['d' + stmt]
-
-        # Performance
-        trade_count = count_signals(signals=data_sliced['s' + stmt])
-        cumul_passive = cumulative_returns(passive_1d, min_periods)
-        cumul_returns = cumulative_returns(returns, min_periods)
-        cumul_excess = cumul_returns - cumul_passive - 1
-        cumul_returns_pct = cumulative_returns_pct(returns, min_periods)
-        roll_profits = rolling_profits(
-            returns, window).fillna(method='ffill')
-
-        # Gain Expectancies
-        _hit_rate = hit_rate(returns, min_periods)
-        _avg_win = average_win(returns, min_periods)
-        _avg_loss = average_loss(returns, min_periods)
-        geo_ge = george(win_rate=_hit_rate, avg_win=_avg_win,
-                        avg_loss=_avg_loss).apply(np.exp) - 1
-
-        # Robustness metrics
-        grit = grit_index(returns, min_periods)
-        calmar = calmar_ratio(returns, min_periods)
-        pr = roll_profits
-        tr = tail_ratio(returns, window, percentile, limit)
-        csr = common_sense_ratio(pr, tr)
-        sqn = t_stat(signal_count=trade_count, expectancy=geo_ge)
-
-        ticker_stmt = f'{symbol}_{str(stmt)}'
-
-        # Add cumulative performance to the perf dataframe
-        perf[ticker_stmt] = cumul_returns
-
-        # Append list
-        row = {
-            'ticker': symbol,
-            'tstmt': ticker_stmt,
-            'stmt': stmt,
-            'perf': round(cumul_returns_pct[-1], 3),
-            'excess': round(cumul_excess[-1], 3),
-            'score': round(grit[-1] * csr[-1] * sqn[-1], 1),
-            'trades': trade_count[-1],
-            'win': round(_hit_rate[-1], 3),
-            'avg_win': round(_avg_win[-1], 3),
-            'avg_loss': round(_avg_loss[-1], 3),
-            'geo_GE': round(geo_ge[-1], 4),
-            'grit': round(grit[-1], 1),
-            'csr': round(csr[-1], 1),
-            'p2l': round(pr[-1], 1),
-            'tail': round(tr[-1], 1),
-            'sqn': round(sqn[-1], 1),
-            'risk_adjusted_returns': csr[-1] * sqn[-1] * grit[-1]
-        }
-
-        # Save high_score for later use in the position sizing module
-        if row['risk_adjusted_returns'] > best_rar:
-            best_rar = row['risk_adjusted_returns']
-            high_score = data.copy()
-            high_score['score'] = row['risk_adjusted_returns']
-            high_score['trades'] = trade_count
-            high_score['r_perf'] = cumul_returns
-            high_score['csr'] = csr
-            high_score['geo_GE'] = geo_ge
-            high_score['sqn'] = sqn
-    """
-    perf, row, best_rar: variables at a higher state
-    high_score: the best results in terms of robustness score()
-
     """
     return high_score, perf, row, best_rar
 

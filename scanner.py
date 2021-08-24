@@ -76,7 +76,8 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
         'absolute_returns',
         'close',
         'position_size',
-        'score'
+        'score',
+        'stop_loss_base'
     ]]
     # Sort columns by regime change date
     market_regime.sort_values(
@@ -115,7 +116,8 @@ def regime_scan(
         'absolute_returns': cumulative_absolute_returns,
         'close': price_data.b_close[-1],
         'position_size': position_size,
-        'score': price_data.score[-1]
+        'score': price_data.score[-1],
+        'stop_loss_base': price_data.stop_loss_base[-1]
     }
 
 
@@ -161,7 +163,7 @@ if __name__ == '__main__':
     # ).read().decode().split()
     stocks = pd.read_excel('nasdaq.xlsx')
     start = time()
-    main(symbols=stocks.Symbol.to_list(), bench='SPX')
+    main(symbols=['AFL'], bench='SPX')
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
 

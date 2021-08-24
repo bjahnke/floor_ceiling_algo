@@ -263,7 +263,7 @@ def init_fc_data(
     data_cpy = merge_copy(data, 'b')
     data = rel_data.join(data_cpy)
     data = data[
-        ['open', 'high', 'low', 'close', 'b_close']
+        ['open', 'high', 'low', 'close', 'b_close', 'b_high', 'b_low']
     ]
 
     try:
@@ -271,6 +271,13 @@ def init_fc_data(
             df=data,
             high='high',
             low='low',
+            arg_rel_window=arg_rel_window,
+            prefix='sw'
+        )
+        data = btu.swings(
+            df=data,
+            high='b_high',
+            low='b_low',
             arg_rel_window=arg_rel_window,
             prefix='sw'
         )
