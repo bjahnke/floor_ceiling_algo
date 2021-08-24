@@ -32,7 +32,7 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
                 base_symbol=symbol,
                 bench_symbol=bench_symbol,
                 equity=account_info.equity,
-                freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
+                freq_range=tdargs.freqs.day.range(tdargs.periods.y5)
             )
         except tda_access.EmptyDataError:
             print(f'no data? {symbol}')
@@ -151,19 +151,19 @@ def main(symbols: t.List[str], bench: str):
 if __name__ == '__main__':
     # # TODO ADP
     # # TODO find method to get reliable updated source and with stocks
-    # SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
-    #
-    # # Load S&P 500 composition from documentation
-    # # List[str]
-    # sp500 = httpx.get(
-    #     SP500_URL,
-    #     headers={
-    #         "User-Agent": "Mozilla/5.0"
-    #     }
-    # ).read().decode().split()
-    stocks = pd.read_excel('nasdaq.xlsx')
+    SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
+
+    # Load S&P 500 composition from documentation
+    # List[str]
+    sp500 = httpx.get(
+        SP500_URL,
+        headers={
+            "User-Agent": "Mozilla/5.0"
+        }
+    ).read().decode().split()
+    # stocks = pd.read_excel('nasdaq.xlsx')
     start = time()
-    main(symbols=['AFL'], bench='SPX')
+    main(symbols=sp500, bench='SPX')
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
 

@@ -114,7 +114,9 @@ class SymbolData:
             # for eqty_risk_lot, short position lot will be negative if valid.
             # so multiply by signal to get the true lot
             quantity=current_bar.eqty_risk_lot * current_bar.signal,
-            stop_loss=current_bar.stop_loss
+            # TODO usage of base price stop loss is temporary until
+            #   relative stop loss is implemented with data streaming
+            stop_loss=current_bar.stop_loss_base
         )
 
 
@@ -165,6 +167,7 @@ class SymbolManager:
         return state
 
     def filled(self):
+        new_trade_state = self.trade_state
         if self.symbol_data.update_data() is True:
             order_data = self.symbol_data.parse_signal()
             position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
@@ -179,9 +182,10 @@ class SymbolManager:
                 new_trade_state = SymbolState.REST
             else:
                 new_trade_state = SymbolState.FILLED
-            return new_trade_state
+        return new_trade_state
 
     def rest(self):
+        new_trade_state = self.trade_state
         if self.symbol_data.update_data():
             order_data = self.symbol_data.parse_signal()
             order_lambda = tda_access.OPEN_ORDER.get(
@@ -208,9 +212,10 @@ class SymbolManager:
                 )
             else:
                 new_trade_state = SymbolState.REST
-            return new_trade_state
+        return new_trade_state
 
     def order_pending(self, order_info: tda_access.OrderData = None):
+        # sourcery skip: lift-return-into-if
         """resolve the status of the current order (self.order_id is id of the current order)"""
         if order_info is None:
             order_info = tda_access.LocalClient.get_order_data(order_id=self.order_id)

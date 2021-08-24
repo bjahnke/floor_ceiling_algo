@@ -5,13 +5,12 @@ analyzing order/balance/position history
 
 TODO order history?
 """
+from __future__ import annotations
 import datetime
-from collections import namedtuple
 
 from tda.orders.common import OrderType
 
 import credentials
-from time import sleep, perf_counter
 import asyncio
 
 import tda
@@ -22,16 +21,11 @@ from dataclasses import dataclass, field
 import typing as t
 from enum import Enum
 import tda.orders.equities as toe
-import tda.orders.common as toc
 import json
 
 OrderStatus = tda.client.Client.Order.Status
 
-OrderData = namedtuple('OrderData', ['direction', 'quantity', 'stop_loss', 'status'])
-
-
 _ACCOUNT_ID = credentials.ACCOUNT_ID
-
 
 def parse_orders(orders: t.List[t.Dict]) -> t.Dict[int, t.Dict]:
     return {order['orderId']: order for order in orders}
@@ -85,6 +79,27 @@ class Side(Enum):
     LONG = 1
     SHORT = -1
     CLOSE = 0
+
+    @classmethod
+    def _missing_(cls, value):
+        """
+        provides additional mappings of enum values
+        """
+        enum_map = {
+            'BUY': cls.LONG,
+            'SELL_SHORT': cls.SHORT
+        }
+        if (res := enum_map.get(value, None)) is not None:
+            res = super()._missing_(value)
+        return res
+
+
+@dataclass
+class OrderData:
+    direction: Side
+    quantity: int
+    stop_loss: t.Union[float, None] = field(default=None)
+    status: OrderStatus = field(default=None)
 
 
 CLOSE_ORDER = {
@@ -232,14 +247,13 @@ class _LocalClientMeta(type):
         return parse_orders(cls.orders(status=status, cached=cached))
 
     def get_order_data(cls, order_id, cached=False) -> OrderData:
-        dir_to_enum = {
-            'BUY': Side.LONG,
-            'SELL_SHORT': Side.SHORT
-        }
         order = cls.orders_by_id(cached=cached)[order_id]
-        direction = dir_to_enum[order['orderLegCollection'][0]['instruction']]
-        quantity = order['filledQuantity']
-        return OrderData(direction=direction, quantity=quantity, stop_loss=None, status=order['status'])
+        return OrderData(
+            direction=Side(order['orderLegCollection'][0]['instruction']),
+            quantity=order['filledQuantity'],
+            stop_loss=None,
+            status=OrderStatus(order['status'])
+        )
 
     def place_order_spec(cls, order_spec) -> t.Tuple[int, str]:
         """place order with tda-api order spec, return order id"""
