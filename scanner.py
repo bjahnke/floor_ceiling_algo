@@ -75,7 +75,8 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
         'relative_returns',
         'absolute_returns',
         'close',
-        'position_size'
+        'position_size',
+        'score'
     ]]
     # Sort columns by regime change date
     market_regime.sort_values(
@@ -91,8 +92,6 @@ def regime_scan(
     rebase_close_col: str,
     stock_close_col: str,
 ) -> t.Dict:
-    price_data_cols = price_data.columns.to_list()
-
     # Create a dataframe and dictionary list
     # Current regime
     regime = price_data[regime_floorceiling_col][-1]
@@ -115,7 +114,8 @@ def regime_scan(
         'relative_returns': cumulative_relative_returns,
         'absolute_returns': cumulative_absolute_returns,
         'close': price_data.b_close[-1],
-        'position_size': position_size
+        'position_size': position_size,
+        'score': price_data.score[-1]
     }
 
 
@@ -147,20 +147,21 @@ def main(symbols: t.List[str], bench: str):
 
 
 if __name__ == '__main__':
-    # TODO ADP
-    # TODO find method to get reliable updated source and with stocks
-    SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
-
-    # Load S&P 500 composition from documentation
-    # List[str]
-    sp500 = httpx.get(
-        SP500_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        }
-    ).read().decode().split()
+    # # TODO ADP
+    # # TODO find method to get reliable updated source and with stocks
+    # SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
+    #
+    # # Load S&P 500 composition from documentation
+    # # List[str]
+    # sp500 = httpx.get(
+    #     SP500_URL,
+    #     headers={
+    #         "User-Agent": "Mozilla/5.0"
+    #     }
+    # ).read().decode().split()
+    stocks = pd.read_excel('nasdaq.xlsx')
     start = time()
-    main(symbols=['AFL'], bench='SPX')
+    main(symbols=stocks.Symbol.to_list(), bench='SPX')
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
 

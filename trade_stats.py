@@ -5,6 +5,7 @@ import pandas as pd
 import numpy as np
 import typing as t
 
+
 # Calculates the returns
 def simple_returns(prices):
     """
@@ -115,6 +116,7 @@ def count_signals(signals):
 # ======================
 # Performance statistics
 # ======================
+
 
 # Define a function 'cumulative_returns'
 def cumulative_returns(returns, min_periods):
