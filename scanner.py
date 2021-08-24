@@ -1,8 +1,8 @@
 """
 """
 import cProfile
+from pathlib import Path
 from time import time
-
 import httpx
 import fc_data_gen
 import tdargs
@@ -11,12 +11,12 @@ import pandas as pd
 import trade_stats
 from dotmap import DotMap
 import tda_access
-from back_test_utils import NoSwingsError
-
+from back_test_utils import NoSwingsError, graph_regime_fc
+from matplotlib import pyplot as plt
 account_info = tda_access.LocalClient.account_info()
 
 
-def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
+def fc_scan_all(bench_symbol: str, symbols: t.List[str], scan_output_loc: str = './scan_out'):
     list_dict = []
     failed = DotMap(_dynamic=False)
     failed.no_candles = set()
@@ -34,6 +34,26 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str]):
                 equity=account_info.equity,
                 freq_range=tdargs.freqs.day.range(tdargs.periods.y5)
             )
+
+            out_name = f'{scan_output_loc}/{symbol}'
+            relative_data.to_csv(f'{out_name}.csv')
+            # graph_regime_fc(
+            #     ticker=symbol,
+            #     df=relative_data,
+            #     y='close',
+            #     th=1.5,
+            #     sl='sw_low',
+            #     sh='sw_high',
+            #     clg='ceiling',
+            #     flr='floor',
+            #     st=relative_data['st_ma'],
+            #     mt=relative_data['mt_ma'],
+            #     bs='regime_change',
+            #     rg='regime_floorceiling',
+            #     bo=200
+            # )
+            # plt.savefig(f'{out_name}.png', bbox_inches='tight')
+
         except tda_access.EmptyDataError:
             print(f'no data? {symbol}')
             failed.empty_data.add(symbol)

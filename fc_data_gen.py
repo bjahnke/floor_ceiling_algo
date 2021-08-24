@@ -314,22 +314,6 @@ def init_fc_data(
 
     data['ceiling'] = data.loc[data.regime_floorceiling == -1, 'regime_change']
     data['floor'] = data.loc[data.regime_floorceiling == 1, 'regime_change']
-    btu.graph_regime_fc(
-        ticker=base_symbol,
-        df=data,
-        y='close',
-        th=threshold,
-        sl='sw_low',
-        sh='sw_high',
-        clg='ceiling',
-        flr='floor',
-        st=data['st_ma'],
-        mt=data['mt_ma'],
-        bs='regime_change',
-        rg='regime_floorceiling',
-        bo=200
-    )
-    plt.show()
 
     data = data.rename(columns={
         data.columns[8]: 'signal',
