@@ -8,5 +8,6 @@ setup(
     license='',
     author='Brian',
     author_email='',
-    description='', install_requires=['dotmap', 'matplotlib', 'pandas', 'numpy', 'selenium', 'scipy', 'httpx', 'tda-api']
+    description='',
+    install_requires=['dotmap', 'matplotlib', 'pandas', 'numpy', 'selenium', 'scipy', 'httpx', 'tda-api']
 )

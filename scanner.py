@@ -35,8 +35,10 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str], scan_output_loc: str = 
                 freq_range=tdargs.freqs.day.range(tdargs.periods.y5)
             )
 
+            Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
             out_name = f'{scan_output_loc}/{symbol}'
             relative_data.to_csv(f'{out_name}.csv')
+
             # graph_regime_fc(
             #     ticker=symbol,
             #     df=relative_data,
