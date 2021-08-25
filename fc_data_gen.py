@@ -1,7 +1,11 @@
 import typing as t
 from abc import ABC, ABCMeta, abstractmethod
+from datetime import datetime, timedelta
 
 import pandas as pd
+import tda.client
+from pandas import Timedelta
+
 import back_test_utils as btu
 import tda_access
 import tdargs
@@ -19,6 +23,24 @@ class NoSignalsError(Exception):
 _bench_data = {}
 _forex_data = {}
 _configs = {}
+
+
+def get_minimum_freq(date_times: pd.Index) -> Timedelta:
+    """
+    get the minimum frequency across a series of timestamps.
+    Used to determine frequency of a series while taking into
+    account larger than normal differences in bar times due to
+    weekends and holiday
+    :param date_times:
+    """
+    minimum = datetime.today() - date_times[-10]
+    for i, date in enumerate(date_times):
+        if date == date_times[-1]:
+            break
+        current_diff = date_times[i + 1] - date
+        minimum = min(minimum, current_diff)
+
+    return minimum
 
 
 def _validate(df: pd.DataFrame, mandatory_cols):
@@ -180,6 +202,25 @@ class Lots(AccessorBase):
         return self._obj.eqty_risk_lot * self._obj.signal
 
 
+@pd.api.extensions.register_dataframe_accessor('update_check')
+class UpdateCheck:
+    def __init__(self, df: pd.DataFrame):
+        self._obj = df
+
+    def is_ready(self, market_type: tda_access.tda.client.Client.Markets):
+        """check if new bar is ready to be retrieved, prevents redundant API calls"""
+        normal_data_freq = get_minimum_freq(self._opj.index)
+        ready = False
+        if (
+                tda_access.LocalClient.market_is_open(market_type) or
+                # Allow for extra time to get data because, theoretically, market
+                # will be closed when the last bar closes
+                tda_access.LocalClient.market_was_open(market_type, time_ago=normal_data_freq)
+        ):
+            ready = (datetime.now() - self._data.index[-1]) > normal_data_freq
+        return ready
+
+
 def init_fc_data(
         base_symbol: str,
         bench_symbol: str,
@@ -199,6 +240,7 @@ def init_fc_data(
         round_lot: int = 1,
         constant_risk: float = 0.25 / 100,
         constant_weight: float = 3 / 100,
+        market_type: tda.client.Client.Markets = tda.client.Client.Markets.EQUITY
 ):
     """
 
@@ -221,6 +263,7 @@ def init_fc_data(
     :param round_lot: round-by param for position sizer
     :param constant_risk:
     :param constant_weight:
+    :param market_type:
     :return:
     """
     _configs[base_symbol] = locals()
@@ -233,7 +276,8 @@ def init_fc_data(
 
     # benchmark history
     bench_data = _bench_data.get(bench_symbol, None)
-    if bench_data is None:
+    # TODO give market as parameter, will not always
+    if bench_data is None or bench_data.update_check.is_ready(market_type):
         bench_data = tda_access.LocalClient.price_history(
             symbol=bench_symbol,
             freq_range=freq_range

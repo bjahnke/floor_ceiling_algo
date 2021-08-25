@@ -207,12 +207,12 @@ class _LocalClientMeta(type):
     _cached_account_info: t.Union[None, AccountInfo] = None
     _cached_orders: t.List[t.Dict] = None
 
-    _TDA_CLIENT: tda.client.Client = tda.auth.easy_client(
+    TDA_CLIENT: tda.client.Client = tda.auth.easy_client(
         webdriver_func=selenium.webdriver.Firefox,
         **credentials.CLIENT_PARAMS
     )
     STREAM_CLIENT: tda.streaming.StreamClient = tda.streaming.StreamClient(
-        client=_TDA_CLIENT,
+        client=TDA_CLIENT,
         account_id=_ACCOUNT_ID
     )
 
@@ -220,7 +220,7 @@ class _LocalClientMeta(type):
 
     def account_info(cls, cached=False) -> AccountInfo:
         if cached is False or cls._cached_account_info is None:
-            resp = LocalClient._TDA_CLIENT.get_account(
+            resp = LocalClient.TDA_CLIENT.get_account(
                 account_id=_ACCOUNT_ID,
                 fields=[
                     tda.client.Client.Account.Fields.ORDERS,
@@ -236,7 +236,7 @@ class _LocalClientMeta(type):
 
     def orders(cls, status: OrderStatus = None, cached=False):
         if cached is False or cls._cached_orders is None:
-            cls._cached_orders = cls._TDA_CLIENT.get_orders_by_path(
+            cls._cached_orders = cls.TDA_CLIENT.get_orders_by_path(
                 account_id=_ACCOUNT_ID,
                 from_entered_datetime=datetime.datetime.utcnow() - datetime.timedelta(days=59),
                 status=status
@@ -257,13 +257,13 @@ class _LocalClientMeta(type):
 
     def place_order_spec(cls, order_spec) -> t.Tuple[int, str]:
         """place order with tda-api order spec, return order id"""
-        cls._TDA_CLIENT.place_order(account_id=_ACCOUNT_ID, order_spec=order_spec)
+        cls.TDA_CLIENT.place_order(account_id=_ACCOUNT_ID, order_spec=order_spec)
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
 
     def flush_orders(cls):
         for order in cls.orders():
-            cls._TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=_ACCOUNT_ID)
+            cls.TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=_ACCOUNT_ID)
 
     def init_listed_stream(cls):
         """
@@ -291,6 +291,25 @@ class _LocalClientMeta(type):
             book_subs=cls.STREAM_CLIENT.chart_futures_subs
         )
 
+    def market_is_open(cls, market_type: tda.client.Client.Markets) -> bool:
+        """
+        TODO move to MarketData class
+        """
+        resp = cls.TDA_CLIENT.get_hours_for_single_market(
+            market_type, datetime.datetime.now()
+        )
+        resp = resp.json()
+        return resp['equity']['EQ']['isOpen']
+
+    def market_was_open(cls, market_type: tda.client.Client.Markets, time_ago: datetime.timedelta):
+        resp = cls.TDA_CLIENT.get_hours_for_single_market(
+            market_type, datetime.datetime.now()
+        )
+        resp = resp.json()
+        market_end = resp['equity']['EQ']['sessionHours']['regularMarket'][0]['end'][:-6]
+        market_end = datetime.datetime.strptime(market_end, '%Y-%m-%dT%H:%M:%S')
+        return datetime.datetime.now() - market_end <= time_ago
+
 
 # create td client
 class LocalClient(metaclass=_LocalClientMeta):
@@ -310,7 +329,7 @@ class LocalClient(metaclass=_LocalClientMeta):
         """
         # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
         while True:
-            resp = cls._TDA_CLIENT.get_price_history(
+            resp = cls.TDA_CLIENT.get_price_history(
                 symbol,
                 period_type=freq_range.range.period.type,
                 period=freq_range.range.period.val,
@@ -346,14 +365,6 @@ class LocalClient(metaclass=_LocalClientMeta):
         df = df[['open', 'high', 'close', 'low']]
 
         return df
-
-
-# class LocalStreamClient(metaclass=_LocalClientMeta):
-#     """class for streaming related activities"""
-#     _STREAM_CLIENT: tda.streaming.StreamClient = tda.streaming.StreamClient(
-#         client=_TDA_CLIENT,
-#         account_id=_ACCOUNT_ID
-#     )
 
 
 if __name__ == '__main__':

@@ -24,24 +24,6 @@ _TradeStates = namedtuple('TradeStates', 'managed not_managed')
 # =======
 
 
-def get_minimum_freq(date_times: pd.Index) -> Timedelta:
-    """
-    get the minimum frequency across a series of timestamps.
-    Used to determine frequency of a series while taking into
-    account larger than normal differences in bar times due to
-    weekends and holiday
-    :param date_times:
-    """
-    minimum = datetime.today() - date_times[-10]
-    for i, date in enumerate(date_times):
-        if date == date_times[-1]:
-            break
-        current_diff = date_times[i + 1] - date
-        minimum = min(minimum, current_diff)
-
-    return minimum
-
-
 class Input:
     BUY = 1
     SELL = -1
@@ -58,13 +40,15 @@ class SymbolData:
         self,
         base_symbol: str,
         bench_symbol: str,
-        freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
+        freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
+        market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY
     ):
         self._name = base_symbol
         self._bench_symbol = bench_symbol
         self._freq_range = freq_range
         self._data = None
         self._bar_freq = None
+        self.MARKET = market_type
 
     @property
     def name(self):
@@ -87,9 +71,9 @@ class SymbolData:
         new_data = False
         if self._data is None:
             self._data = self.fetch_data()
-            self._bar_freq = get_minimum_freq(self._data.index)
+            self._bar_freq = fc_data_gen.get_minimum_freq(self._data.index)
             new_data = True
-        elif self.update_ready():
+        elif self._data.update_check.is_ready(self.MARKET):
             current_data = self._data.index[-1]
             self._data = self.fetch_data()
             if self._data.index[-1] != current_data:
