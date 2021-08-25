@@ -11,33 +11,64 @@ import pandas as pd
 import trade_stats
 from dotmap import DotMap
 import tda_access
-from back_test_utils import NoSwingsError, graph_regime_fc
-from matplotlib import pyplot as plt
+from back_test_utils import NoSwingsError
 account_info = tda_access.LocalClient.account_info()
 
+failed = DotMap(_dynamic=False)
+failed.no_candles = set()
+failed.empty_data = set()
+failed.no_swings = set()
+failed.ticker_not_found = set()
+failed.no_high_score = set()
 
-def fc_scan_all(bench_symbol: str, symbols: t.List[str], scan_output_loc: str = './scan_out'):
+
+def fc_scan_symbol(
+        bench_symbol: str,
+        symbol: str,
+        freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
+        scan_output_loc: str = './scan_out'
+):
+    relative_data = fc_data_gen.init_fc_data(
+        base_symbol=symbol,
+        bench_symbol=bench_symbol,
+        equity=account_info.equity,
+        freq_range=freq_range
+    )
+
+    Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
+    out_name = f'{scan_output_loc}/{symbol}'
+    relative_data.to_csv(f'{out_name}.csv')
+    # except tda_access.EmptyDataError:
+    # except tda_access.TickerNotFoundError:
+    # except NoSwingsError as err:
+    # except fc_data_gen.FcLosesToBuyHoldError:
+    scan_result = regime_scan(
+        price_data=relative_data,
+        regime_floorceiling_col='regime_floorceiling',
+        regime_change_col='regime_change',
+        rebase_close_col='close',
+        stock_close_col='b_close'
+    )
+    scan_result['up_to_date'] = relative_data.index[-1]
+    return scan_result
+
+
+def fc_scan_all(
+        bench_symbol: str,
+        symbols: t.List[str],
+        freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
+        scan_output_loc: str = './scan_out'
+):
     list_dict = []
-    failed = DotMap(_dynamic=False)
-    failed.no_candles = set()
-    failed.empty_data = set()
-    failed.no_swings = set()
-    failed.ticker_not_found = set()
-    failed.no_high_score = set()
 
     while len(symbols) > 0:
         symbol = symbols[0]
         try:
-            relative_data = fc_data_gen.init_fc_data(
-                base_symbol=symbol,
+            scan_result = fc_scan_symbol(
+                symbol=symbol,
                 bench_symbol=bench_symbol,
-                equity=account_info.equity,
-                freq_range=tdargs.freqs.day.range(tdargs.periods.y5)
+                freq_range=freq_range
             )
-
-            Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
-            out_name = f'{scan_output_loc}/{symbol}'
-            relative_data.to_csv(f'{out_name}.csv')
 
             # graph_regime_fc(
             #     ticker=symbol,
@@ -73,16 +104,6 @@ def fc_scan_all(bench_symbol: str, symbols: t.List[str], scan_output_loc: str = 
         except fc_data_gen.FcLosesToBuyHoldError:
             failed.no_high_score.add(symbols.pop(0))
         else:
-            scan_result = regime_scan(
-                price_data=relative_data,
-                regime_floorceiling_col='regime_floorceiling',
-                regime_change_col='regime_change',
-                rebase_close_col='close',
-                stock_close_col='b_close'
-            )
-            print(f'{symbol}, {len(symbols)} left...')
-            scan_result['symbol'] = symbols.pop(0)
-            scan_result['up_to_date'] = relative_data.index[-1]
             list_dict.append(scan_result)
 
     # Instantiate market_regime df using pd.DataFrame. from_dict()

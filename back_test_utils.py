@@ -14,6 +14,7 @@ from trade_stats import (
     common_sense_ratio, equity_at_risk, get_round_lot
 )
 
+
 class NoSwingsError(Exception):
     """FC calc cannot continue because no swings were detected"""
 

@@ -89,7 +89,7 @@ class SymbolData:
             self._data = self.fetch_data()
             self._bar_freq = get_minimum_freq(self._data.index)
             new_data = True
-        elif self.update_ready:
+        elif self.update_ready():
             current_data = self._data.index[-1]
             self._data = self.fetch_data()
             if self._data.index[-1] != current_data:
