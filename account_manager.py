@@ -64,7 +64,7 @@ class SymbolData:
 
     def update_ready(self):
         """check if new bar is ready to be retrieved, prevents redundant API calls"""
-        return (datetime.now() - self._data.index[-1]) > self._bar_freq
+        return self._data.update_check.is_ready(self.MARKET, self._bar_freq)
 
     def update_data(self) -> bool:
         """attempt to get new price history, update strategy"""
@@ -73,7 +73,7 @@ class SymbolData:
             self._data = self.fetch_data()
             self._bar_freq = fc_data_gen.get_minimum_freq(self._data.index)
             new_data = True
-        elif self._data.update_check.is_ready(self.MARKET):
+        elif self._data.update_ready():
             current_data = self._data.index[-1]
             self._data = self.fetch_data()
             if self._data.index[-1] != current_data:

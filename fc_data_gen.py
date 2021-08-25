@@ -207,17 +207,18 @@ class UpdateCheck:
     def __init__(self, df: pd.DataFrame):
         self._obj = df
 
-    def is_ready(self, market_type: tda_access.tda.client.Client.Markets):
+    def is_ready(self, market_type: tda_access.tda.client.Client.Markets, data_freq: t.Optional[timedelta] = None):
         """check if new bar is ready to be retrieved, prevents redundant API calls"""
-        normal_data_freq = get_minimum_freq(self._opj.index)
+        if data_freq is None:
+            data_freq = get_minimum_freq(self._opj.index)
         ready = False
         if (
                 tda_access.LocalClient.market_is_open(market_type) or
                 # Allow for extra time to get data because, theoretically, market
                 # will be closed when the last bar closes
-                tda_access.LocalClient.market_was_open(market_type, time_ago=normal_data_freq)
+                tda_access.LocalClient.market_was_open(market_type, time_ago=data_freq)
         ):
-            ready = (datetime.now() - self._data.index[-1]) > normal_data_freq
+            ready = (datetime.now() - self._data.index[-1]) > data_freq
         return ready
 
 
