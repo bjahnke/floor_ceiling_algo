@@ -322,7 +322,6 @@ class LocalClient(metaclass=_LocalClientMeta):
             freq_range: tdargs.FreqRangeArgs,
     ) -> pd.DataFrame:
         """
-        # TODO add type hints
         :param symbol:
         :param freq_range:
         :return:

@@ -3,6 +3,7 @@ test tda access functionality
 """
 import pprint
 import typing as t
+from datetime import datetime, timedelta
 
 from tda.orders.equities import equity_buy_market, equity_sell_market
 from tda.client import Client
@@ -46,7 +47,19 @@ def check_order_details():
 
     print('done')
 
+def test_market_hours():
+    res = ta.LocalClient.TDA_CLIENT.get_hours_for_single_market(
+        Client.Markets.EQUITY, datetime.now()
+    )
+    res = res.json()
+    data = res['equity']['EQ']
+    is_open = data['isOpen']
+    market_start = data['sessionHours']['regularMarket'][0]['start'][:-6]
+    market_end = data['sessionHours']['regularMarket'][0]['end'][:-6]
+    mstart_datetime = datetime.strptime(market_start, '%Y-%m-%dT%H:%M:%S')
+    print('done')
+
 
 if __name__ == '__main__':
-    test_get_order_id()
+    test_market_hours()
 
