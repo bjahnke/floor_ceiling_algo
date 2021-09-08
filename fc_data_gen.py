@@ -165,15 +165,40 @@ class Signals(AccessorBase):
         """transition from non-nan to nan means signal has ended"""
         return self._obj[self._obj.signal.shift(-1).isnull() & self._obj.signal.notnull()]
 
-    @property
-    def slices(self) -> t.List[pd.DataFrame]:
+    def slices(
+        self,
+        side: Side = None,
+        concat: bool = False
+    ) -> t.Union[t.List[pd.DataFrame], pd.DataFrame]:
+        """
+
+        :param side: filters for trades in the same direction as the given value
+        :param concat: for convenience when writing long queries. Will concat slices
+                       into a single DataFrame if true
+        :return: if concat = True, a list of signals. if concat = False, a single dataframe
+                 containing all signals
+        """
         # TODO loop iter on DataFrame bad but there should only be small amount of signals
         starts = self.starts
         ends = self.ends
-        return [
-            self._obj.loc[starts.index[i]: end_date]
-            for i, end_date in enumerate(ends.index.to_list())
-        ]
+        res = []
+        for i, end_date in enumerate(ends.index.to_list()):
+            trade_slice = self._obj.loc[starts.index[i]: end_date]
+            if (
+                side is None or
+                Side(trade_slice.signal[0]) == side
+            ):
+                res.append(trade_slice)
+
+        if concat:
+            res = pd.concat(res)
+
+        return res
+
+    @property
+    def all(self) -> pd.DataFrame:
+        """dataframe of all signals (trades)"""
+        return pd.concat(self.slices())
 
     @property
     def current(self):
@@ -183,6 +208,31 @@ class Signals(AccessorBase):
     @property
     def prev(self):
         return self._obj.signal[-2]
+
+    def cumulative_returns(self, side: Side = None) -> pd.Series:
+        ""
+        daily_log_returns = pd.concat([
+            signal_data.stats.daily_log_returns * signal_data.signal[-1]
+            for signal_data in self.slices(side)
+        ])
+        return trade_stats.cum_return_percent(daily_log_returns)
+
+
+@pd.api.extensions.register_dataframe_accessor('stats')
+class Stats(AccessorBase):
+    mandatory_cols = ['close', 'b_close']
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__(df)
+
+    @property
+    def cumulative_percent_returns(self):
+        """"""
+        return trade_stats.cum_return_percent(self.daily_log_returns)
+
+    @property
+    def daily_log_returns(self):
+        return trade_stats.simple_returns(self._obj.b_close) * self._obj.signal
 
 
 @pd.api.extensions.register_dataframe_accessor('lots')
