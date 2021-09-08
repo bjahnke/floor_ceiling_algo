@@ -19,9 +19,11 @@ import pandas as pd
 import tdargs
 from dataclasses import dataclass, field
 import typing as t
-from enum import Enum
+
 import tda.orders.equities as toe
 import json
+
+from strategy_utils import Side
 
 OrderStatus = tda.client.Client.Order.Status
 
@@ -73,26 +75,6 @@ class EmptyDataError(Exception):
 
 class TickerNotFoundError(Exception):
     """error response from td api is Not Found"""
-
-
-class Side(Enum):
-    LONG = 1
-    SHORT = -1
-    CLOSE = 0
-
-    @classmethod
-    def _missing_(cls, value):
-        """
-        provides additional mappings of enum values
-        """
-        enum_map = {
-            'BUY': cls.LONG,
-            'SELL_SHORT': cls.SHORT
-        }
-        if (res := enum_map.get(value, None)) is not None:
-            res = super()._missing_(value)
-        return res
-
 
 @dataclass
 class OrderData:

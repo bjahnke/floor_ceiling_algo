@@ -12,6 +12,10 @@ import tdargs
 from matplotlib import pyplot as plt
 import pickle
 
+import trade_stats
+
+from strategy_utils import Side
+
 
 class FcLosesToBuyHoldError(Exception):
     """fc data failed to initialize because it doesn't beat buy and hold"""
@@ -141,7 +145,6 @@ class FcData(AccessorBase):
     def position_sizes(self):
         """"""
         return None
-
 
 @pd.api.extensions.register_dataframe_accessor('signals')
 class Signals(AccessorBase):
@@ -545,7 +548,7 @@ def create_relative_data(
     return data
 
 
-if __name__ == '__main__':
+def test():
     res = init_fc_data(
         base_symbol='AAPL',
         bench_symbol='SPX',
@@ -553,3 +556,7 @@ if __name__ == '__main__':
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2)
     )
     print('Done.')
+
+
+if __name__ == '__main__':
+    test()

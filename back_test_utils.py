@@ -841,14 +841,14 @@ def init_fc_signal_stoploss(
             price=relative_close,
             ma_per=st,
             min_per=1,
-            decimals=2
+            decimals=5
         )
         r_mt_ma = sma(
             df=data,
             price=relative_close,
             ma_per=mt,
             min_per=1,
-            decimals=2
+            decimals=5
         )
 
         # Calculate positions based on regime and ma cross

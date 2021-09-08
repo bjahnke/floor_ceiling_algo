@@ -7,7 +7,7 @@ import typing as t
 
 
 # Calculates the returns
-def simple_returns(prices):
+def simple_returns(prices) -> pd.Series:
     """
     calculates log returns based on price series
     """

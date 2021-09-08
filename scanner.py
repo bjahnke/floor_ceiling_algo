@@ -70,7 +70,7 @@ def fc_scan_symbol(
         rg='regime_floorceiling',
         bo=200
     )
-
+    plt.show()
     Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
     out_name = f'{scan_output_loc}/{symbol}'
     price_data.to_csv(f'{out_name}.csv')
@@ -193,13 +193,13 @@ def regime_scan(
     )
 
     # TODO no position sizes to calculate on
-    position_size = price_data.signals.slices[-1].eqty_risk_lot[-1]
+    position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
     return {
         'regime': regime,
         'signal': price_data.signal[-1],
         'regime_change_date': regime_change_date,
-        'relative_returns': cumulative_relative_returns,
-        'absolute_returns': cumulative_absolute_returns,
+        'relative_returns': cumulative_relative_returns,  # returns since last regime change (relative price)
+        'absolute_returns': cumulative_absolute_returns,  # returns since last regime change (base price)
         'close': price_data.b_close[-1],
         'position_size': position_size,
         'score': price_data.score[-1],
@@ -243,7 +243,7 @@ def main(
 
     print('done.')
 
-def yf_price_history(symbol, freq_range):
+def yf_price_history(symbol, freq_range=None):
     data: pd.DataFrame = yf.Ticker(symbol).history(period='1y', interval='1h')
     if symbol == 'CCI30':
         data = pd.read_csv('cci30_OHLCV.csv')
@@ -268,8 +268,7 @@ def yf_price_history(symbol, freq_range):
 
     return data[['open', 'high', 'low', 'close', 'b_high', 'b_low', 'b_close']]
 
-
-if __name__ == '__main__':
+def test_scanner():
     # # TODO ADP
     # # TODO find method to get reliable updated source and with stocks
     SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
@@ -294,6 +293,26 @@ if __name__ == '__main__':
     )
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
+
+def test_signals():
+    price_data = yf_price_history('ADA-USD')
+    price_data = fc_data_gen.new_init_fc_data(
+        base_symbol='ADA-USD',
+        price_data=price_data,
+        equity=account_info.equity
+    )
+    last_signal = price_data.signals.slices()[-1]
+    cum_returns = last_signal.stats.cumulative_percent_returns
+    print(cum_returns[-1])
+
+
+if __name__ == '__main__':
+    test_signals()
+    main(
+        symbols=['ADA-USD'],
+        fetch_price_history=yf_price_history,
+    )
+
 
 
 
