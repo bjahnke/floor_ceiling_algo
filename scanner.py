@@ -14,8 +14,11 @@ import trade_stats
 from dotmap import DotMap
 import tda_access
 from back_test_utils import NoSwingsError
+from strategy_utils import Side
+
 account_info = tda_access.LocalClient.account_info()
 import yfinance as yf
+import cbpro
 
 
 failed = DotMap(_dynamic=False)
@@ -55,6 +58,12 @@ def fc_scan_symbol(
         equity=account_info.equity
     )
 
+    last_signal = price_data.signals.slices()[-1]
+    cum_returns = last_signal.stats.cumulative_percent_returns
+    cum_returns_total = price_data.signals.cumulative_returns(side=Side.LONG)
+    print(f'{symbol} all returns: {cum_returns_total[-1]}')
+    print(f'{symbol} last signal returns: {cum_returns[-1]}')
+
     back_test_utils.graph_regime_fc(
         ticker=symbol,
         df=price_data,
@@ -70,7 +79,7 @@ def fc_scan_symbol(
         rg='regime_floorceiling',
         bo=200
     )
-    plt.show()
+    # plt.show()
     Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
     out_name = f'{scan_output_loc}/{symbol}'
     price_data.to_csv(f'{out_name}.csv')
@@ -119,6 +128,10 @@ def fc_scan_all(
 
         try:
             data = fetch_price_history(symbol, freq_range)
+            if len(data.index) == 0:
+                symbols.pop(0)
+                continue
+
             scan_result = fc_scan_symbol(
                 symbol=symbol,
                 price_data=data,
@@ -264,7 +277,10 @@ def yf_price_history(symbol, freq_range=None):
     data['b_close'] = data.close
 
     # convert date time to timezone unaware
-    data.index = data.index.tz_convert(None)
+    try:
+        data.index = data.index.tz_convert(None)
+    except AttributeError:
+        pass
 
     return data[['open', 'high', 'low', 'close', 'b_high', 'b_low', 'b_close']]
 
@@ -283,7 +299,6 @@ def test_scanner():
     ).read().decode().split()
     # stocks = pd.read_excel('nasdaq.xlsx')
 
-
     start = time()
     main(
         symbols=['ADA-USD'],
@@ -301,15 +316,17 @@ def test_signals():
         price_data=price_data,
         equity=account_info.equity
     )
-    last_signal = price_data.signals.slices()[-1]
-    cum_returns = last_signal.stats.cumulative_percent_returns
-    print(cum_returns[-1])
+
+
 
 
 if __name__ == '__main__':
+    cb_pub_client = cbpro.PublicClient()
+    cb_products = pd.DataFrame.from_dict(cb_pub_client.get_products())
+    cb_usd_products = cb_products.loc[cb_products.quote_currency == 'USD']
     test_signals()
     main(
-        symbols=['ADA-USD'],
+        symbols=cb_usd_products.id.to_list(),
         fetch_price_history=yf_price_history,
     )
 

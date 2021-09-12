@@ -9,5 +9,16 @@ setup(
     author='Brian',
     author_email='',
     description='',
-    install_requires=['dotmap', 'matplotlib', 'pandas', 'numpy', 'selenium', 'scipy', 'httpx', 'tda-api']
+    install_requires=[
+        'dotmap',
+        'matplotlib',
+        'pandas',
+        'numpy',
+        'selenium',
+        'scipy',
+        'httpx',
+        'tda-api',
+        'yfinance',
+        'cbpro'
+    ]
 )
