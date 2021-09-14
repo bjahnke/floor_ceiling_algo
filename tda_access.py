@@ -141,7 +141,6 @@ class Position:
 
 @dataclass
 class AccountInfo:
-
     acct_data_raw: t.Dict
     equity: float = field(init=False)
     liquid_funds: float = field(init=False)

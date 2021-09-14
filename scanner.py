@@ -79,7 +79,7 @@ def fc_scan_symbol(
         rg='regime_floorceiling',
         bo=200
     )
-    # plt.show()
+    plt.show()
     Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
     out_name = f'{scan_output_loc}/{symbol}'
     price_data.to_csv(f'{out_name}.csv')
@@ -318,15 +318,14 @@ def test_signals():
     )
 
 
-
-
 if __name__ == '__main__':
     cb_pub_client = cbpro.PublicClient()
     cb_products = pd.DataFrame.from_dict(cb_pub_client.get_products())
     cb_usd_products = cb_products.loc[cb_products.quote_currency == 'USD']
     test_signals()
     main(
-        symbols=cb_usd_products.id.to_list(),
+        # symbols=cb_usd_products.id.to_list(),
+        symbols=['FET-USD'],
         fetch_price_history=yf_price_history,
     )
 
