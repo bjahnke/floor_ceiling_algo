@@ -20,6 +20,32 @@ account_info = tda_access.LocalClient.account_info()
 import yfinance as yf
 import cbpro
 
+from dataclasses import dataclass, field
+
+
+@dataclass
+class Range:
+    _min: t.Union[None, float] = field(default=None)
+    _max: t.Union[None, float] = field(default=None)
+
+    def __post_init__(self):
+        Range._assert_min_le_max(self._min, self._max)
+
+    @staticmethod
+    def _assert_min_le_max(min_num, max_num):
+        if None not in [min_num, max_num]:
+            assert min_num <= max_num, 'min value must not be greater than max value'
+
+    def is_in_range(self, num: float):
+        return (
+            (self._max is None or num <= self._max) and
+            (self._min is None or num >= self._min)
+        )
+
+
+class StrNanInPriceError(Exception):
+    """string nan in price history"""
+
 
 failed = DotMap(_dynamic=False)
 failed.no_candles = set()
@@ -27,6 +53,7 @@ failed.empty_data = set()
 failed.no_swings = set()
 failed.ticker_not_found = set()
 failed.no_high_score = set()
+failed.str_nan_in_price = set()
 
 
 def fc_scan_symbol(
@@ -79,7 +106,7 @@ def fc_scan_symbol(
         rg='regime_floorceiling',
         bo=200
     )
-    plt.show()
+    # plt.show()
     Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
     out_name = f'{scan_output_loc}/{symbol}'
     price_data.to_csv(f'{out_name}.csv')
@@ -106,7 +133,9 @@ def fc_scan_all(
         fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
         freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
         bench_symbol: str = None,
-        scan_output_loc: str = './scan_out'
+        scan_output_loc: str = './scan_out',
+        close_range: Range = Range(),
+        volume_range: Range = Range(),
 ):
     """
     scans all given symbols. builds overview report of scan results.
@@ -120,7 +149,7 @@ def fc_scan_all(
     """
     list_dict = []
     bench_data = None
-    if bench_symbol is not None:
+    if bench_symbol is None:
         bench_data = fetch_price_history(bench_symbol, freq_range)
 
     while len(symbols) > 0:
@@ -128,7 +157,11 @@ def fc_scan_all(
 
         try:
             data = fetch_price_history(symbol, freq_range)
-            if len(data.index) == 0:
+            if (
+                len(data.index) == 0 or
+                not close_range.is_in_range(data.close[-1]) or
+                not volume_range.is_in_range(data.volume[-1])
+            ):
                 symbols.pop(0)
                 continue
 
@@ -153,8 +186,13 @@ def fc_scan_all(
                 # only raise, since we already raised once
                 # https://stackoverflow.com/questions/2052390/manually-raising-throwing-an-exception-in-python
                 raise
+        except StrNanInPriceError:
+            failed.str_nan_in_price.add(symbols.pop(0))
         except fc_data_gen.FcLosesToBuyHoldError:
             failed.no_high_score.add(symbols.pop(0))
+        except FileNotFoundError:
+            # for some reason PRN can not be written to files, results in FileNotFoundError
+            symbols.pop(0)
         else:
             list_dict.append(scan_result)
             symbols.pop(0)
@@ -233,6 +271,8 @@ def main(
     fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
     freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
     bench: str = None,
+    close_range: Range = Range(),
+    volume_range: Range = Range()
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     scan_results = fc_scan_all(
@@ -255,6 +295,7 @@ def main(
                 break
 
     print('done.')
+
 
 def yf_price_history(symbol, freq_range=None):
     data: pd.DataFrame = yf.Ticker(symbol).history(period='1y', interval='1h')
@@ -297,17 +338,18 @@ def test_scanner():
             "User-Agent": "Mozilla/5.0"
         }
     ).read().decode().split()
-    # stocks = pd.read_excel('nasdaq.xlsx')
+    #
 
     start = time()
     main(
-        symbols=['ADA-USD'],
+        symbols=stocks.Symbol.to_list(),
         bench=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y3),
         fetch_price_history=yf_price_history
     )
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
+
 
 def test_signals():
     price_data = yf_price_history('ADA-USD')
@@ -319,13 +361,13 @@ def test_signals():
 
 
 if __name__ == '__main__':
-    cb_pub_client = cbpro.PublicClient()
-    cb_products = pd.DataFrame.from_dict(cb_pub_client.get_products())
-    cb_usd_products = cb_products.loc[cb_products.quote_currency == 'USD']
-    test_signals()
+    # cb_pub_client = cbpro.PublicClient()
+    # cb_products = pd.DataFrame.from_dict(cb_pub_client.get_products())
+    # cb_usd_products = cb_products.loc[cb_products.quote_currency == 'USD']
+    stocks = pd.read_excel(r'C:\Users\temp\OneDrive\symbol_data\nasdaq.xlsx')
     main(
         # symbols=cb_usd_products.id.to_list(),
-        symbols=['FET-USD'],
+        symbols=stocks,
         fetch_price_history=yf_price_history,
     )
 
