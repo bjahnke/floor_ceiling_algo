@@ -209,12 +209,21 @@ class Signals(AccessorBase):
         return self._obj.signal[-2]
 
     def cumulative_returns(self, side: Side = None) -> pd.Series:
-        ""
-        daily_log_returns = pd.concat([
+        """"""
+        slice_returns = [
             signal_data.stats.daily_log_returns * signal_data.signal[-1]
             for signal_data in self.slices(side)
-        ])
-        return trade_stats.cum_return_percent(daily_log_returns)
+        ]
+        res = 0
+        if len(slice_returns) > 1:
+            daily_log_returns = pd.concat(slice_returns)
+        else:
+            daily_log_returns = slice_returns[0]
+
+        if slice_returns:
+            res = trade_stats.cum_return_percent(daily_log_returns)
+
+        return res
 
 
 @pd.api.extensions.register_dataframe_accessor('stats')

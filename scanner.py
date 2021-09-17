@@ -1,6 +1,7 @@
 """
 """
 import cProfile
+import json
 from pathlib import Path
 from time import time
 import httpx
@@ -87,7 +88,7 @@ def fc_scan_symbol(
 
     last_signal = price_data.signals.slices()[-1]
     cum_returns = last_signal.stats.cumulative_percent_returns
-    cum_returns_total = price_data.signals.cumulative_returns(side=Side.LONG)
+    cum_returns_total = price_data.signals.cumulative_returns()
     print(f'{symbol} all returns: {cum_returns_total[-1]}')
     print(f'{symbol} last signal returns: {cum_returns[-1]}')
 
@@ -133,7 +134,7 @@ def fc_scan_all(
         fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
         freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
         bench_symbol: str = None,
-        scan_output_loc: str = './scan_out',
+        scan_output_loc: str = r'.\scan_out',
         close_range: Range = Range(),
         volume_range: Range = Range(),
 ):
@@ -149,7 +150,7 @@ def fc_scan_all(
     """
     list_dict = []
     bench_data = None
-    if bench_symbol is None:
+    if bench_symbol is not None:
         bench_data = fetch_price_history(bench_symbol, freq_range)
 
     while len(symbols) > 0:
@@ -298,7 +299,11 @@ def main(
 
 
 def yf_price_history(symbol, freq_range=None):
-    data: pd.DataFrame = yf.Ticker(symbol).history(period='1y', interval='1h')
+    try:
+        data: pd.DataFrame = yf.Ticker(symbol).history(period='1y', interval='1h')
+    except json.decoder.JSONDecodeError:
+        return pd.DataFrame()
+
     if symbol == 'CCI30':
         data = pd.read_csv('cci30_OHLCV.csv')
         data.Date = pd.to_datetime(data.Date, infer_datetime_format=True)
@@ -309,7 +314,8 @@ def yf_price_history(symbol, freq_range=None):
         'Open': 'open',
         'High': 'high',
         'Low': 'low',
-        'Close': 'close'
+        'Close': 'close',
+        'Volume': 'volume'
     })
     # the following columns are needed for compatibility with current
     # implementation of init_fc_data.
@@ -323,7 +329,7 @@ def yf_price_history(symbol, freq_range=None):
     except AttributeError:
         pass
 
-    return data[['open', 'high', 'low', 'close', 'b_high', 'b_low', 'b_close']]
+    return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
 
 def test_scanner():
     # # TODO ADP
@@ -364,11 +370,13 @@ if __name__ == '__main__':
     # cb_pub_client = cbpro.PublicClient()
     # cb_products = pd.DataFrame.from_dict(cb_pub_client.get_products())
     # cb_usd_products = cb_products.loc[cb_products.quote_currency == 'USD']
-    stocks = pd.read_excel(r'C:\Users\temp\OneDrive\symbol_data\nasdaq.xlsx')
+    stocks = pd.read_excel(r'.\symbols\nasdaq.xlsx')
     main(
         # symbols=cb_usd_products.id.to_list(),
-        symbols=stocks,
+        symbols=stocks.Symbol.to_list(),
         fetch_price_history=yf_price_history,
+        close_range=Range(_min=2, _max=50),
+        # volume_range=Range(_min=100000)
     )
 
 

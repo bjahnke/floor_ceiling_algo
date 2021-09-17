@@ -39,7 +39,8 @@ class SymbolData:
         self,
         base_symbol: str,
         bench_symbol: str,
-        brokerage_client:
+
+        brokerage_client=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
         market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY
     ):
@@ -83,7 +84,9 @@ class SymbolData:
         return new_data
 
     def fetch_data(self):
-        return fc_data_gen.init_fc_data(
+
+
+        return fc_data_gen.new_init_fc_data(
             base_symbol=self._name,
             bench_symbol=self._bench_symbol,
             equity=tda_access.LocalClient.account_info().equity,
