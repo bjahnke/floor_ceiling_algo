@@ -27,7 +27,7 @@ __timeout__: float = 0.275
 
 List = typing.TypeVar('List', list, list[dict])
 Dict = typing.TypeVar('DList', dict, List)
-Response = typing.TypeVar('Response', requests.Response, list[requests.Response])
+Response = typing.TypeVar('Response', requests.Response, List[requests.Response])
 
 
 class AbstractAuth(abc.ABC):
@@ -37,22 +37,26 @@ class AbstractAuth(abc.ABC):
 
 
 class AbstractQuery(abc.ABC):
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def endpoint(self) -> str:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def data(self) -> dict:
         pass
 
 
 class AbstractAPI(abc.ABC):
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def version(self) -> int:
         """return the current rest api version"""
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def url(self) -> str:
         """return the rest api url"""
         pass
@@ -73,19 +77,23 @@ class AbstractMessenger(abc.ABC):
     def __init__(self, auth: AbstractAuth):
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def api(self) -> AbstractAPI:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def auth(self) -> AbstractAuth:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def session(self) -> requests.Session:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def timeout(self) -> int:
         pass
 
@@ -107,11 +115,13 @@ class AbstractMessenger(abc.ABC):
 
 
 class AbstractContext(abc.ABC):
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def response(self) -> Response:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def id(self) -> str:
         pass
 
@@ -126,14 +136,16 @@ class AbstractContext(abc.ABC):
 
 class AbstractClient(abc.ABC):
     @abc.abstractmethod
-    def __init__(self, messenger: AbstractMessenger):
+    def __init__(self, *args, **kwargs):
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def name(self) -> str:
         pass
 
-    @abc.abstractproperty
+    @property
+    @abc.abstractmethod
     def messenger(self) -> AbstractMessenger:
         pass
 
@@ -168,5 +180,5 @@ class AbstractClient(abc.ABC):
 
 class AbstractFactory(abc.ABC):
     @abc.abstractmethod
-    def get_client(self) -> AbstractClient:
+    def get_client(self, *args, **kwargs) -> AbstractClient:
         pass

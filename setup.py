@@ -19,6 +19,5 @@ setup(
         'httpx',
         'tda-api',
         'yfinance',
-        'cbpro'
     ]
 )

@@ -13,12 +13,10 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from ledger.api.factory import List
-from ledger.api.factory import Response
 
-from ledger.api.factory import AbstractContext
-from ledger.api.factory import AbstractQuery
-from ledger.api.factory import AbstractMessenger
+from access_api.factory import List, Dict, Response, AbstractContext
+from access_api.factory import AbstractQuery
+from access_api.factory import AbstractMessenger
 
 import dataclasses
 import requests
@@ -47,6 +45,9 @@ class Context(AbstractContext):
 
     def error(self) -> bool:
         return 200 != self.response.status_code
+
+    def data(self) -> Dict:
+        pass
 
 
 class PageContext(Context):

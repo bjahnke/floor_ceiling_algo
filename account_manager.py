@@ -12,7 +12,6 @@ import tda_access
 import typing as t
 import tdargs
 from collections import namedtuple
-from tda_access import AccountInfo
 
 OrderStatus = tda.client.Client.Order.Status
 
@@ -40,6 +39,7 @@ class SymbolData:
         self,
         base_symbol: str,
         bench_symbol: str,
+        brokerage_client:
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
         market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY
     ):

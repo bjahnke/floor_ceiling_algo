@@ -10,7 +10,6 @@ import back_test_utils as btu
 import tda_access
 import tdargs
 from matplotlib import pyplot as plt
-import pickle
 
 import trade_stats
 

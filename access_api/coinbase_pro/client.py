@@ -13,25 +13,25 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <https://www.gnu.org/licenses/>.
-from ledger.api.factory import Dict
+from access_api.factory import Dict
 
-from ledger.api.factory import AbstractMessenger
-from ledger.api.factory import AbstractClient
-from ledger.api.factory import AbstractFactory
+from access_api.factory import AbstractMessenger
+from access_api.factory import AbstractClient
+from access_api.factory import AbstractFactory
 
-from ledger.api.coinbase_pro.auth import Auth
+from access_api.coinbase_pro.auth import Auth
 
-from ledger.api.coinbase_pro.messenger import Query
-from ledger.api.coinbase_pro.messenger import Messenger
+from access_api.coinbase_pro.messenger import Query
+from access_api.coinbase_pro.messenger import Messenger
 
-from ledger.api.coinbase_pro.context import ProductsContext
-from ledger.api.coinbase_pro.context import AccountsBalanceContext
-from ledger.api.coinbase_pro.context import AccountsIdentityContext
-from ledger.api.coinbase_pro.context import HistoryContext
-from ledger.api.coinbase_pro.context import TransfersContext
-from ledger.api.coinbase_pro.context import TransfersAccountsContext
-from ledger.api.coinbase_pro.context import PriceContext
-from ledger.api.coinbase_pro.context import OrderContext
+from access_api.coinbase_pro.context import ProductsContext
+from access_api.coinbase_pro.context import AccountsBalanceContext
+from access_api.coinbase_pro.context import AccountsIdentityContext
+from access_api.coinbase_pro.context import HistoryContext
+from access_api.coinbase_pro.context import TransfersContext
+from access_api.coinbase_pro.context import TransfersAccountsContext
+from access_api.coinbase_pro.context import PriceContext
+from access_api.coinbase_pro.context import OrderContext
 
 
 class CoinbaseProClient(AbstractClient):

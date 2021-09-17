@@ -19,15 +19,14 @@ import pandas as pd
 import tdargs
 from dataclasses import dataclass, field
 import typing as t
-
+from enum import Enum
 import tda.orders.equities as toe
 import json
-
-from strategy_utils import Side
 
 OrderStatus = tda.client.Client.Order.Status
 
 _ACCOUNT_ID = credentials.ACCOUNT_ID
+
 
 def parse_orders(orders: t.List[t.Dict]) -> t.Dict[int, t.Dict]:
     return {order['orderId']: order for order in orders}
@@ -75,6 +74,26 @@ class EmptyDataError(Exception):
 
 class TickerNotFoundError(Exception):
     """error response from td api is Not Found"""
+
+
+class Side(Enum):
+    LONG = 1
+    SHORT = -1
+    CLOSE = 0
+
+    @classmethod
+    def _missing_(cls, value):
+        """
+        provides additional mappings of enum values
+        """
+        enum_map = {
+            'BUY': cls.LONG,
+            'SELL_SHORT': cls.SHORT
+        }
+        if (res := enum_map.get(value, None)) is not None:
+            res = super()._missing_(value)
+        return res
+
 
 @dataclass
 class OrderData:
@@ -141,6 +160,7 @@ class Position:
 
 @dataclass
 class AccountInfo:
+
     acct_data_raw: t.Dict
     equity: float = field(init=False)
     liquid_funds: float = field(init=False)
@@ -241,6 +261,10 @@ class _LocalClientMeta(type):
         cls.TDA_CLIENT.place_order(account_id=_ACCOUNT_ID, order_spec=order_spec)
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
+
+    def flush_orders(cls):
+        for order in cls.orders():
+            cls.TDA_CLIENT.cancel_order(order_id=order['orderId'], account_id=_ACCOUNT_ID)
 
     def init_listed_stream(cls):
         """
