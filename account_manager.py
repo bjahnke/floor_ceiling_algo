@@ -13,6 +13,8 @@ import typing as t
 import tdargs
 from collections import namedtuple
 
+from scanner import yf_price_history
+
 OrderStatus = tda.client.Client.Order.Status
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
@@ -32,14 +34,15 @@ class Input:
 class SymbolData:
     _name: str
     _data: t.Union[None, pd.DataFrame]
+    _bench_data: t.Union[None, pd.DataFrame]
     _update_price_history: t.Callable[[], pd.DataFrame]
     _bar_freq: t.Union[None, Timedelta]
 
     def __init__(
         self,
         base_symbol: str,
-        bench_symbol: str,
-
+        fetch_data_function: t.Callable,
+        bench_symbol: t.Union[str, None] = None,
         brokerage_client=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
         market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY
@@ -48,6 +51,7 @@ class SymbolData:
         self._bench_symbol = bench_symbol
         self._freq_range = freq_range
         self._data = None
+        self._bench_data = None
         self._bar_freq = None
         self.MARKET = market_type
 
