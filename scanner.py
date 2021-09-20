@@ -18,10 +18,6 @@ from back_test_utils import NoSwingsError
 from strategy_utils import Side
 
 account_info = tda_access.LocalClient.account_info()
-import yfinance as yf
-import cbpro
-
-from dataclasses import dataclass, field
 
 
 @dataclass
@@ -148,7 +144,6 @@ def fc_scan_all(
     :param fetch_price_history:
     :return:
     """
-    list_dict = []
     bench_data = None
     if bench_symbol is not None:
         bench_data = fetch_price_history(bench_symbol, freq_range)
