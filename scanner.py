@@ -16,6 +16,8 @@ from dotmap import DotMap
 import tda_access
 from back_test_utils import NoSwingsError
 from strategy_utils import Side
+import yfinance as yf
+from dataclasses import dataclass, field
 
 account_info = tda_access.LocalClient.account_info()
 
@@ -51,6 +53,9 @@ failed.no_swings = set()
 failed.ticker_not_found = set()
 failed.no_high_score = set()
 failed.str_nan_in_price = set()
+
+# TODO create scanner class with raw_scan_results as attribute
+raw_scan_results = []
 
 
 def fc_scan_symbol(
@@ -133,7 +138,7 @@ def fc_scan_all(
         scan_output_loc: str = r'.\scan_out',
         close_range: Range = Range(),
         volume_range: Range = Range(),
-):
+) -> t.List[t.Dict]:
     """
     scans all given symbols. builds overview report of scan results.
     Handles possible exceptions.
@@ -142,6 +147,8 @@ def fc_scan_all(
     :param freq_range:
     :param scan_output_loc:
     :param fetch_price_history:
+    :param close_range: filter out stocks by current close price
+    :param volume_range: filter out stocks by current volume
     :return:
     """
     bench_data = None
@@ -190,12 +197,16 @@ def fc_scan_all(
             # for some reason PRN can not be written to files, results in FileNotFoundError
             symbols.pop(0)
         else:
-            list_dict.append(scan_result)
+            raw_scan_results.append(scan_result)
             symbols.pop(0)
             print(f'{symbol}, {len(symbols)} left...')
 
+    return raw_scan_results
+
+
+def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
     # Instantiate market_regime df using pd.DataFrame. from_dict()
-    market_regime = pd.DataFrame.from_dict(list_dict)
+    market_regime = pd.DataFrame.from_dict(scan_results_raw)
     # Change the order of the columns
     if len(market_regime.index.to_list()) == 0:
         raise Exception("no data output")
@@ -271,26 +282,40 @@ def main(
     volume_range: Range = Range()
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
-    scan_results = fc_scan_all(
-        bench_symbol=bench,
-        symbols=symbols,
-        freq_range=freq_range,
-        fetch_price_history=fetch_price_history
-    )
-    scan_results['true_pos_size'] = scan_results.position_size * scan_results.signal
-    # scan_results = fc_scan_all('SPX', ['ADP'])
+    def post_process(raw_scan_res: t.List[t.Dict]):
+        scan_results_df = format_scan_results(raw_scan_res)
+        # add columns post process for convenience
+        scan_results_df['true_pos_size'] = scan_results_df.position_size * scan_results_df.signal
+        scan_results_to_excel(scan_results_df)
 
-    print(len(scan_results.index))
-    while True:
-        try:
-            scan_results.to_excel('SPX_REGIME_SCAN.xlsx')
-            break
-        except PermissionError:
-            inp = input('xlsx file is still open.\n\'n\' to quit:')
-            if inp == 'n':
-                break
+    try:
+        scan_results = fc_scan_all(
+            bench_symbol=bench,
+            symbols=symbols,
+            freq_range=freq_range,
+            fetch_price_history=fetch_price_history
+        )
+    except:
+        # output existing results if any uncaught exception occurs
+        post_process(raw_scan_results)
+        raise
+    else:
+        post_process(raw_scan_results)
 
     print('done.')
+
+
+def scan_results_to_excel(data:pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
+    """write data to file. if file opened prepend a number until successful"""
+    i = 0
+    prefix = ''
+    while True:
+        try:
+            if i > 0:
+                prefix = f'({i})'
+            data.to_excel(f'{prefix}{file_path}')
+        except PermissionError:
+            i += 1
 
 
 def yf_price_history(symbol, freq_range=None):

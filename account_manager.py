@@ -97,7 +97,7 @@ class SymbolData:
             base_symbol=self._name,
             price_data=self._data,
             equity=tda_access.LocalClient.account_info().equity,
-            freq_range=self._freq_range
+            # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
         )
 
     def parse_signal(self) -> tda_access.OrderData:
@@ -129,6 +129,7 @@ class SymbolManager:
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
+        # TODO pass in broker to symbol manager. req abstract AccountInfo param cached: bool (or **kwarg)
         self.account_data = tda_access.LocalClient.account_info(cached=True)
         self.trade_state = self._init_trade_state()
         self.order_id = None
@@ -164,6 +165,7 @@ class SymbolManager:
         new_trade_state = self.trade_state
         if self.symbol_data.update_data() is True:
             order_data = self.symbol_data.parse_signal()
+            # TODO make abstract client. req abstract AccountInfo.positions: dict
             position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
             if position is None:
                 # if no position found for this symbol,
@@ -188,6 +190,7 @@ class SymbolManager:
             )
             # no order template corresponding to the current signal val means trade signal not given
             if order_lambda is not None:
+                # TODO add to abstract client: req place_order_spec (may need to change to make more generic)
                 self.order_id, order_status = tda_access.LocalClient.place_order_spec(
                     order_lambda(self.symbol_data.name, order_data.quantity)
                 )
@@ -212,6 +215,7 @@ class SymbolManager:
         # sourcery skip: lift-return-into-if
         """resolve the status of the current order (self.order_id is id of the current order)"""
         if order_info is None:
+            # TODO abstract client. req get_order_data
             order_info = tda_access.LocalClient.get_order_data(order_id=self.order_id)
 
         if order_info.status == OrderStatus.FILLED:
@@ -236,6 +240,7 @@ class AccountManager:
     """
 
     def __init__(self, *signal_data: SymbolData):
+        # TODO abstract out LocalClient: req AbstractClass containing account_info()
         self._account_info = tda_access.LocalClient.account_info()
         self.signal_data = signal_data
         trade_states = init_states(self._account_info.get_symbols(), self.signal_data)
