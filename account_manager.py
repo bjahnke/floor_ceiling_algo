@@ -84,11 +84,14 @@ class SymbolData:
         return new_data
 
     def fetch_data(self):
+        self._data = yf_price_history(symbol=self._name)
 
+        if self._bench_symbol is not None:
+            self._bench_data = yf_price_history(symbol=self._bench_symbol)
 
         return fc_data_gen.new_init_fc_data(
             base_symbol=self._name,
-            bench_symbol=self._bench_symbol,
+            price_data=self._data,
             equity=tda_access.LocalClient.account_info().equity,
             freq_range=self._freq_range
         )
