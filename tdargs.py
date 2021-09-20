@@ -5,68 +5,80 @@ via tda-api
 
 Restricts the input options
 """
+import pandas as pd
 from tda.client import Client
-from collections import namedtuple
 from datetime import datetime, timedelta
-from typing import Union, Callable
+from typing import Union, Callable, Any
+from dataclasses import dataclass
 
 _tda_freq = Client.PriceHistory.Frequency
 _tda_freq_type = Client.PriceHistory.FrequencyType
 _tda_period = Client.PriceHistory.Period
 _tda_period_type = Client.PriceHistory.PeriodType
 
-NamedDf = namedtuple('NamedDf', 'data symbol')
+@dataclass
+class LabeledData:
+    symbol: str
+    data: pd.DataFrame
 
-_TypeMap = namedtuple('TypeMap', 'type val')
 
-_FrequencyMap = namedtuple(
-    'FrequencyMap',
-    'month '
-    'week '
-    'day '
-    'm30 '
-    'm15 '
-    'm10 '
-    'm5 '
-    'm1 '
-)
+@dataclass
+class _TypeMap:
+    """bind tda frequency types to frequency value"""
+    type: Any
+    val: Any
 
-_PeriodMap = namedtuple(
-    'PeriodMap',
-    'y20 '
-    'y15 '
-    'y10 '
-    'y5 '
-    'y3 '
-    'y2 '
-    'y1 '
-    'm6 '
-    'm3 '
-    'm2 '
-    'm1 '
-    'd10 '
-    'd5 '
-    'd4 '
-    'd3 '
-    'd2 '
-    'd1 '
-)
+@dataclass
+class _TimeSliceArgs:
+    """
+    # the last parameter should be None upon initialization. they are included for duck typing
+    """
+    start: Any
+    end: Any
+    period: Any
 
-# the last parameter should be None upon initialization. they are included for duck typing
-_TimeSliceArgs = namedtuple('TimeSliceArgs', 'start end period')
 
-FreqRangeArgs = namedtuple('RangeFreqArgs', 'freq range')
+@dataclass
+class FreqRangeArgs:
+    freq: Any
+    range: Any
 
 def time_slice(left_bound: datetime, right_bound: datetime):
     assert type(left_bound) == datetime
     return _TimeSliceArgs(left_bound, right_bound, _TypeMap(None, None))
 
 
-_TimePeriodArgs = namedtuple('TimePeriodArgs', 'period end start')
+@dataclass
+class _TimePeriodArgs:
+    period: Any
+    end: Any
+    start: Any
 
 def time_period(left_bound: _TypeMap, right_bound: datetime):
     assert type(left_bound) == _TypeMap
     return _TimePeriodArgs(left_bound, right_bound, None)
+
+
+@dataclass
+class _PeriodMap:
+    """create bindings for period type and period"""
+    y20: _TypeMap
+    y15: _TypeMap
+    y10: _TypeMap
+    y5: _TypeMap
+    y3: _TypeMap
+    y2: _TypeMap
+    y1: _TypeMap
+    m6: _TypeMap
+    m3: _TypeMap
+    m2: _TypeMap
+    m1: _TypeMap
+    d10: _TypeMap
+    d5: _TypeMap
+    d4: _TypeMap
+    d3: _TypeMap
+    d2: _TypeMap
+    d1: _TypeMap
 
 
 class _PHistoryArgs:
@@ -99,6 +111,19 @@ class _PHistoryArgs:
         """
         time_range = self._tr_init(left_bound, right_bound)
         return FreqRangeArgs(freq=self.freq, range=time_range)
+
+
+@dataclass
+class _FrequencyMap:
+    """contains tda param mappings for all bar types"""
+    month: _PHistoryArgs
+    week: _PHistoryArgs
+    day: _PHistoryArgs
+    m30: _PHistoryArgs
+    m15: _PHistoryArgs
+    m10: _PHistoryArgs
+    m5: _PHistoryArgs
+    m1: _PHistoryArgs
 
 
 def time_ago(
