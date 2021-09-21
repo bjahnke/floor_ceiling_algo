@@ -620,7 +620,10 @@ def signal_fcstmt(regime, st, mt):
     it will have an active position only if regime and moving averages are aligned
     Long : st-mt > 0 & regime == 1
     Short: st-mt < 0 & regime == -1
-
+    TODO
+        - check out the affect of this function in debugger
+        - is double np.sign necessary?
+        - is (regime * active) necessary after (regime * stmt_sign)?
     """
     # Calculate the sign of the stmt delta
     stmt_sign = np.sign((st - mt).fillna(0))
@@ -675,79 +678,6 @@ def transaction_costs(data: pd.DataFrame, position_column: str, daily_return, tr
     return data[daily_return]
 
 
-def score_all(
-    fc_data_list: List[pd.DataFrame],  # fc_data_list: List[trade_df.PriceMdf],
-    base_close: str,
-    relative_close: str,
-    st_list: List[int],
-    mt_list: List[int],
-    transaction_cost: float,
-    percentile: float,
-    min_periods: int,
-    window: int,
-    limit: int,
-):
-
-    """
-    We loop through the four different stock data sets.
-    Steps within the for loop: ​
-
-        Create a relative series
-        Calculate the swings
-        Calculate the stock regime
-        Calculate returns for the relative and absolute closed price
-        Create another for loop ​
-
-    Steps within the second for loop:
-
-        Start with a condition: If short_term < mid_term,
-        Create dataframe
-        Calculate moving averages
-        Calculate positions based on the regime and moving average cross
-        Calculate excess returns for passive
-        Calculate daily & cumulative returns and include transaction costs
-        Calculate the gain expectancies, Performance and robustness.
-        Append the performance to a list
-    :return:
-    """
-
-    new = fc_data_list.copy()
-
-    # Instantiate variables
-    min_periods = 50
-    window = 200
-    percentile = 0.05
-    limit = 5
-    transaction_cost = 0.0025
-
-    # Instantiate the permutations of moving averages
-    st_list = range(10, 101, 10)
-    mt_list = range(50, 201, 20)
-
-    # Instantiate list dictionary and perf dataframe
-    list_dict = []
-    col_order = ['stmt', 'score', 'csr', 'grit', 'sqn', 'perf']
-
-    # Fields to optimise (here, we optimise for robustness)
-    optimised_fields = ['score']
-    display_rows = 10
-    best_risk_adjusted_returns = 0
-
-    scoreboard = pd.DataFrame(columns=col_order)
-    high_score = pd.DataFrame()
-    perf = pd.DataFrame()
-    # TODO run score_card for all dfs
-    for fc in fc_data_list:
-        # res_perf, new_row, best_rar = init_fc_signal_stoploss(
-        #     fc_data=fc.data,
-        #     symbol=fc.symbol,
-        #     base_close=base_close,
-        #     relative_close=relative_close,
-        #
-        # )
-        pass
-
-
 def init_fc_signal_stoploss(
     fc_data: pd.DataFrame,
     symbol: str,
@@ -763,7 +693,7 @@ def init_fc_signal_stoploss(
     best_risk_adjusted_returns: int,
 ):
     """
-    TODO return info on selected signal
+    TODO return info on selected signal (smas, etc)
     :param fc_data:
     :param symbol:
     :param base_close:
@@ -786,40 +716,26 @@ def init_fc_signal_stoploss(
     # Calculate returns for the relative closed price
     # fc_data['r_return_1d'] = returns(fc_data['rebased_close'])
     # rets = pd.Series(fc_data['rebased_close'])
-    rets = fc_data[relative_close]
     r_return_1d = 'r_return_1d'
-    fc_data[r_return_1d] = np.log(rets / rets.shift(1))
+    fc_data[r_return_1d] = simple_returns(fc_data[relative_close])
     row = {}
 
     # Calculate returns for the absolute closed price
     # fc_data['return_1d'] = returns(fc_data['Close'])
-    rets = fc_data[base_close]
     return_1d = 'return_1d'
-    fc_data[return_1d] = np.log(rets / rets.shift(1))
+    fc_data[return_1d] = simple_returns(fc_data[base_close])
 
     r_regime_floorceiling = 'regime_floorceiling'
     sw_rebased_low = 'sw_low'
     sw_rebased_high = 'sw_high'
     high_score = None
+
+
     for st, mt in itertools.product(st_list, mt_list):
         if st >= mt:
             continue
         # Create dataframe
-        data = pd.DataFrame()
-        data[
-            [
-                relative_close,
-                base_close,
-                r_return_1d,
-                return_1d,
-                r_regime_floorceiling,
-                sw_rebased_low,
-                sw_rebased_high,
-                'regime_change',
-                'sw_b_low',
-                'sw_b_high'
-            ]
-        ] = fc_data[
+        data = fc_data[
             [
                 relative_close,
                 base_close,
@@ -834,8 +750,12 @@ def init_fc_signal_stoploss(
             ]
         ].copy()
 
-        # Calculate moving averages
         stmt = str(st) + str(mt)
+        signal_col = 's' + stmt
+        stop_loss_col = 'sl' + stmt
+        daily_returns_col = 'd' + stmt
+
+        # Calculate moving averages
         r_st_ma = sma(
             df=data,
             price=relative_close,
@@ -852,26 +772,28 @@ def init_fc_signal_stoploss(
         )
 
         # Calculate positions based on regime and ma cross
-        data['s' + stmt] = signal_fcstmt(
+        data[signal_col] = signal_fcstmt(
             regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma
         )
 
-        signals = data[pd.notnull(data['s' + stmt])]
+        signals = data[pd.notnull(data[signal_col])]
         if len(signals) == 0:
             # no signals found, skip
             continue
 
         first_position_dt = signals.index[0]
 
-        data['sl' + stmt] = stop_loss(
-            signal=data['s' + stmt],
+        # stop loss (relative)
+        data[stop_loss_col] = stop_loss(
+            signal=data[signal_col],
             close=data[relative_close],
             s_low=data[sw_rebased_low],
             s_high=data[sw_rebased_high]
         )
 
+        # stop loss (absolute)
         data['stop_loss_base'] = stop_loss(
-            signal=data['s' + stmt],
+            signal=data[signal_col],
             close=data[base_close],
             s_low=data['sw_b_low'],
             s_high=data['sw_b_high']
@@ -879,24 +801,25 @@ def init_fc_signal_stoploss(
 
         # Date of initial position to calculate excess returns for passive
         # Passive stats are recalculated each time because start date changes with stmt sma
-        # TODO move to first_position_dt
         data_sliced = data[first_position_dt:].copy()
 
         # Calculate daily & cumulative returns and include transaction costs
-        data_sliced['d' + stmt] = data_sliced['r_return_1d'] * data_sliced['s' + stmt].shift(1)
-        data_sliced['d' + stmt] = transaction_costs(
+        data_sliced[daily_returns_col] = (
+            data_sliced['r_return_1d'] * data_sliced[signal_col].shift(1)
+        )
+        data_sliced[daily_returns_col] = transaction_costs(
             data=data_sliced,
-            position_column='s' + stmt,
-            daily_return='d' + stmt,
+            position_column=signal_col,
+            daily_return=daily_returns_col,
             transaction_cost=transaction_cost
         )
 
         # Cumulative performance must be higher than passive or regime (w/o transaction costs)
         passive_1d = data_sliced['r_return_1d']
-        returns = data_sliced['d' + stmt]
+        returns = data_sliced[daily_returns_col]
 
         # Performance
-        trade_count = count_signals(signals=data_sliced['s' + stmt])
+        trade_count = count_signals(signals=data_sliced[signal_col])
         cumul_passive = cumulative_returns(passive_1d, min_periods)
         cumul_returns = cumulative_returns(returns, min_periods)
         cumul_excess = cumul_returns - cumul_passive - 1

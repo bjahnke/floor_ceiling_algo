@@ -174,7 +174,7 @@ class Signals(AccessorBase):
         :param side: filters for trades in the same direction as the given value
         :param concat: for convenience when writing long queries. Will concat slices
                        into a single DataFrame if true
-        :return: if concat = True, a list of signals. if concat = False, a single dataframe
+        :return: if concat = False, a list of signals. if concat = True, a single dataframe
                  containing all signals
         """
         # TODO loop iter on DataFrame bad but there should only be small amount of signals
@@ -209,7 +209,7 @@ class Signals(AccessorBase):
         return self._obj.signal[-2]
 
     def cumulative_returns(self, side: Side = None) -> pd.Series:
-        """"""
+        """cumulative_returns for all signals"""
         slice_returns = [
             signal_data.stats.daily_log_returns * signal_data.signal[-1]
             for signal_data in self.slices(side)
@@ -456,7 +456,7 @@ def new_init_fc_data(
         base_symbol: str,
         price_data: pd.DataFrame,
         equity: float,
-        transaction_cost: t.Optional[float] = 0.025,
+        transaction_cost: t.Optional[float] = 0,
         percentile: float = 0.05,
         min_periods: int = 50,
         window: int = 200,

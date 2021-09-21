@@ -214,9 +214,7 @@ def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
         'symbol',
         'regime_change_date',
         'up_to_date',
-        'regime',
         'signal',
-        'relative_returns',
         'absolute_returns',
         'close',
         'position_size',
@@ -242,22 +240,25 @@ def regime_scan(
     regime = price_data[regime_floorceiling_col][-1]
     # Find the latest regime change
     regime_change_date = price_data[price_data[regime_change_col].diff() != 0].index[-1]
+
     cumulative_relative_returns = cumulative_percent_returns(
         price_data, regime_change_date, rebase_close_col
     )
+    # adjust to positive for short side
+    cumulative_relative_returns *= price_data.signals.slices()[-1].signal[-1]
 
-    cumulative_absolute_returns = cumulative_percent_returns(
-        price_data, regime_change_date, stock_close_col
-    )
+    # TODO accessor only usable for base price currently, need solution for applying to relative
+    # cumulative_relative_returns = price_data.signals.cumulative_returns()
 
-    # TODO no position sizes to calculate on
+    cumulative_absolute_returns = price_data.signals.cumulative_returns()[-1]
+
     position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
     return {
         'regime': regime,
         'signal': price_data.signal[-1],
         'regime_change_date': regime_change_date,
-        'relative_returns': cumulative_relative_returns,  # returns since last regime change (relative price)
-        'absolute_returns': cumulative_absolute_returns,  # returns since last regime change (base price)
+        # 'r_returns_last': cumulative_relative_returns,  # returns since last regime change (relative price)
+        'cum_absolute_returns': cumulative_absolute_returns,  # returns since last regime change (base price)
         'close': price_data.b_close[-1],
         'position_size': position_size,
         'score': price_data.score[-1],
@@ -293,7 +294,9 @@ def main(
             bench_symbol=bench,
             symbols=symbols,
             freq_range=freq_range,
-            fetch_price_history=fetch_price_history
+            fetch_price_history=fetch_price_history,
+            close_range=close_range,
+            volume_range=volume_range,
         )
     except:
         # output existing results if any uncaught exception occurs
@@ -305,7 +308,7 @@ def main(
     print('done.')
 
 
-def scan_results_to_excel(data:pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
+def scan_results_to_excel(data: pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
     """write data to file. if file opened prepend a number until successful"""
     i = 0
     prefix = ''
