@@ -112,7 +112,7 @@ def fc_scan_symbol(
     Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
     out_name = f'{scan_output_loc}/{symbol}'
     price_data.to_csv(f'{out_name}.csv')
-    plt.savefig(f'{symbol}.png', bbox_inches='tight')
+    plt.savefig(f'{out_name}.png', bbox_inches='tight')
     # except tda_access.EmptyDataError:
     # except tda_access.TickerNotFoundError:
     # except NoSwingsError as err:
@@ -210,20 +210,9 @@ def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
     # Change the order of the columns
     if len(market_regime.index.to_list()) == 0:
         raise Exception("no data output")
-    market_regime = market_regime[[
-        'symbol',
-        'regime_change_date',
-        'up_to_date',
-        'signal',
-        'absolute_returns',
-        'close',
-        'position_size',
-        'score',
-        'stop_loss_base'
-    ]]
     # Sort columns by regime change date
     market_regime.sort_values(
-        by=['regime_change_date'], ascending=False, inplace=True
+        by=['signal_start'], ascending=False, inplace=True
     )
     return market_regime
 
@@ -238,30 +227,32 @@ def regime_scan(
     # Create a dataframe and dictionary list
     # Current regime
     regime = price_data[regime_floorceiling_col][-1]
-    # Find the latest regime change
-    regime_change_date = price_data[price_data[regime_change_col].diff() != 0].index[-1]
 
-    cumulative_relative_returns = cumulative_percent_returns(
-        price_data, regime_change_date, rebase_close_col
-    )
-    # adjust to positive for short side
-    cumulative_relative_returns *= price_data.signals.slices()[-1].signal[-1]
+    # # Find the latest regime change
+    # regime_change_date = price_data[price_data[regime_change_col].diff() != 0].index[-1]
+    #
+    # cumulative_relative_returns = cumulative_percent_returns(
+    #     price_data, regime_change_date, rebase_close_col
+    # )
+    # # adjust to positive for short side
+    # cumulative_relative_returns *= price_data.signals.slices()[-1].signal[-1]
 
     # TODO accessor only usable for base price currently, need solution for applying to relative
     # cumulative_relative_returns = price_data.signals.cumulative_returns()
+
+    signal_start_data = price_data.signals.slices()[-1].index[-1]
 
     cumulative_absolute_returns = price_data.signals.cumulative_returns()[-1]
 
     position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
     return {
-        'regime': regime,
         'signal': price_data.signal[-1],
-        'regime_change_date': regime_change_date,
+        'signal_start': signal_start_data,
         # 'r_returns_last': cumulative_relative_returns,  # returns since last regime change (relative price)
         'cum_absolute_returns': cumulative_absolute_returns,  # returns since last regime change (base price)
+        'score': price_data.score[-1],
         'close': price_data.b_close[-1],
         'position_size': position_size,
-        'score': price_data.score[-1],
         'stop_loss_base': price_data.stop_loss_base[-1]
     }
 
@@ -284,10 +275,15 @@ def main(
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     def post_process(raw_scan_res: t.List[t.Dict]):
-        scan_results_df = format_scan_results(raw_scan_res)
+        scan_out: pd.DataFrame = format_scan_results(raw_scan_res)
         # add columns post process for convenience
-        scan_results_df['true_pos_size'] = scan_results_df.position_size * scan_results_df.signal
-        scan_results_to_excel(scan_results_df)
+        scan_out['true_size'] = scan_out.position_size * scan_out.signal
+        scan_out['trade_val'] = scan_out.true_size * scan_out.close
+        scan_out['trade_risk'] = (
+            (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
+        )
+
+        scan_results_to_excel(scan_out)
 
     try:
         scan_results = fc_scan_all(
@@ -371,7 +367,7 @@ def test_scanner():
 
     start = time()
     main(
-        symbols=stocks.Symbol.to_list(),
+        symbols=sp500,
         bench=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y3),
         fetch_price_history=yf_price_history
@@ -390,17 +386,7 @@ def test_signals():
 
 
 if __name__ == '__main__':
-    # cb_pub_client = cbpro.PublicClient()
-    # cb_products = pd.DataFrame.from_dict(cb_pub_client.get_products())
-    # cb_usd_products = cb_products.loc[cb_products.quote_currency == 'USD']
-    stocks = pd.read_excel(r'.\symbols\nasdaq.xlsx')
-    main(
-        # symbols=cb_usd_products.id.to_list(),
-        symbols=stocks.Symbol.to_list(),
-        fetch_price_history=yf_price_history,
-        close_range=Range(_min=2, _max=50),
-        # volume_range=Range(_min=100000)
-    )
+    test_scanner()
 
 
 
