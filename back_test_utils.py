@@ -690,7 +690,6 @@ def init_fc_signal_stoploss(
     min_periods: int,
     window: int,
     limit: int,
-    best_risk_adjusted_returns: int,
 ):
     """
     TODO return info on selected signal (smas, etc)
@@ -709,7 +708,7 @@ def init_fc_signal_stoploss(
     :return:
     """
     perf = pd.DataFrame()
-    best_rar = best_risk_adjusted_returns
+    best_rar = None
     # ==================================
     # Beginning of file loop in example
     # ==================================
@@ -869,7 +868,7 @@ def init_fc_signal_stoploss(
         }
 
         # Save high_score for later use in the position sizing module
-        if row['risk_adjusted_returns'] > best_rar:
+        if best_rar is None or row['risk_adjusted_returns'] > best_rar:
             best_rar = row['risk_adjusted_returns']
             high_score = data.copy()
             high_score['score'] = row['risk_adjusted_returns']

@@ -533,7 +533,6 @@ def new_init_fc_data(
         min_periods=min_periods,
         window=window,
         limit=limit,
-        best_risk_adjusted_returns=0
     )[0]
     if price_data is None:
         raise FcLosesToBuyHoldError(f'{base_symbol} Floor/Ceiling does not beat buy and hold')

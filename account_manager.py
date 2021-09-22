@@ -45,7 +45,8 @@ class SymbolData:
         bench_symbol: t.Union[str, None] = None,
         brokerage_client=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
-        market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY
+        market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY,
+        enter_on_fresh_signal=False
     ):
         self._name = base_symbol
         self._bench_symbol = bench_symbol
