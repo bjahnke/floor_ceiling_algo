@@ -1,10 +1,12 @@
+import typing as t
+
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import scipy.signal
 import tdargs
 from datetime import datetime
-from typing import List
+from dataclasses import dataclass
 from tda_access import LocalClient
 import itertools  # construct a list of permutations
 from trade_stats import (
@@ -13,6 +15,18 @@ from trade_stats import (
     average_loss, george, grit_index, calmar_ratio, tail_ratio, t_stat,
     common_sense_ratio, equity_at_risk, get_round_lot
 )
+import pd_accessors
+
+@dataclass
+class AnalysisData:
+    df: pd.DataFrame
+    stats: pd.DataFrame
+    perf: pd.DataFrame
+    best_rar: float
+    # get mt lt sma params from table
+
+    def __post_init__(self):
+        self.stats = self.stats.sort_values(by=['score'], ascending=False)
 
 
 class NoSwingsError(Exception):
@@ -131,7 +145,6 @@ def sma(
         .mean(),
         decimals,
     )
-
 
 # Calculate exponential moving average
 def ema(
@@ -614,7 +627,7 @@ def rolling_stdev(
 
 
 # Calculates the signals
-def signal_fcstmt(regime, st, mt):
+def signal_fcstmt(regime, st, mt) -> pd.Series:
     """
     This function overimposes st/mt moving average cross condition on regime
     it will have an active position only if regime and moving averages are aligned
@@ -631,6 +644,15 @@ def signal_fcstmt(regime, st, mt):
     # Calculate entries/exits based on regime and stmt delta
     active = np.where(np.sign(regime * stmt_sign) == 1, 1, np.nan)
     return regime * active
+
+
+def vectorized_signal_fcstmt(regime, st_list, mt_list):
+    deltas = []
+    ma_pairs = [(st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt]
+
+
+def create_sma_vector():
+    pass
 
 
 # Calculates the stop-loss
@@ -663,6 +685,16 @@ def stop_loss(
     sl_sign = signal * np.sign(sl_delta)
     signal[sl_sign == -1] = np.nan
     return stoploss
+
+def vectorized_stop_loss(
+    signal: pd.DataFrame,
+    close: pd.Series,
+    s_low: pd.Series,
+    s_high: pd.Series
+):
+    local_signal = signal.copy()
+    stoploss = (s_low.add(s_high, fill_value=0)).fillna(method='ffill')  # join all swings in 1 column
+    local_signal[~((np.isnan(signal.shift(1))) & (~np.isnan(signal)))] = np.nan
 
 
 # Calculates the transaction costs
@@ -704,7 +736,6 @@ def init_fc_signal_stoploss(
     :param min_periods:
     :param window:
     :param limit:
-    :param best_risk_adjusted_returns:
     :return:
     """
     perf = pd.DataFrame()
@@ -729,10 +760,12 @@ def init_fc_signal_stoploss(
     sw_rebased_high = 'sw_high'
     high_score = None
 
+    stats = []
+    ma_pairs = [(st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt]
 
-    for st, mt in itertools.product(st_list, mt_list):
-        if st >= mt:
-            continue
+    # deltas: pd.DataFrame = fc_data[relative_close].price_opr.sma_signals_vector(ma_pairs)
+
+    for st, mt in ma_pairs:
         # Create dataframe
         data = fc_data[
             [
@@ -866,6 +899,7 @@ def init_fc_signal_stoploss(
             'sqn': round(sqn[-1], 1),
             'risk_adjusted_returns': csr[-1] * sqn[-1] * grit[-1]
         }
+        stats.append(row)
 
         # Save high_score for later use in the position sizing module
         if best_rar is None or row['risk_adjusted_returns'] > best_rar:
@@ -884,6 +918,12 @@ def init_fc_signal_stoploss(
     high_score: the best results in terms of robustness score()
     
     """
+    analysis_result = AnalysisData(
+        df=high_score,
+        stats=pd.DataFrame(stats),
+        perf=perf,
+        best_rar=best_rar
+    )
     return high_score, perf, row, best_rar
 
 

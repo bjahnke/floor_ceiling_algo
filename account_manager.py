@@ -1,18 +1,21 @@
-from datetime import datetime
+from __future__ import annotations
+import pickle
 from enum import Enum, auto
 
 import pandas as pd
 from copy import copy
 
 import tda.client
-from pandas import Timestamp, Timedelta
+from pandas import Timedelta
 
 import fc_data_gen
+import pd_accessors
 import tda_access
 import typing as t
 import tdargs
 from collections import namedtuple
 
+from tda_access import Side
 from scanner import yf_price_history
 
 OrderStatus = tda.client.Client.Order.Status
@@ -32,6 +35,7 @@ class Input:
 
 
 class SymbolData:
+    """"""
     _name: str
     _data: t.Union[None, pd.DataFrame]
     _bench_data: t.Union[None, pd.DataFrame]
@@ -64,55 +68,36 @@ class SymbolData:
     def data(self):
         return self._data
 
-    @property
-    def bar_freq(self):
-        return self._bar_freq
-
     def update_ready(self):
         """check if new bar is ready to be retrieved, prevents redundant API calls"""
         return self._data.update_check.is_ready(self.MARKET, self._bar_freq)
 
-    def update_data(self) -> bool:
-        """attempt to get new price history, update strategy"""
-        new_data = False
-        if self._data is None:
-            self._data = self.fetch_data()
-            self._bar_freq = fc_data_gen.get_minimum_freq(self._data.index)
-            new_data = True
-        elif self._data.update_ready():
-            current_data = self._data.index[-1]
-            self._data = self.fetch_data()
-            if self._data.index[-1] != current_data:
-                new_data = True
-            else:
-                print('price history called, but no new data')
-        return new_data
-
-    def fetch_data(self):
-        self._data = yf_price_history(symbol=self._name)
-
+    def get_current_signal(self) -> tda_access.OrderData:
+        new_data = yf_price_history(symbol=self._name)
         if self._bench_symbol is not None:
             self._bench_data = yf_price_history(symbol=self._bench_symbol)
-
-        return fc_data_gen.new_init_fc_data(
-            base_symbol=self._name,
-            price_data=self._data,
-            equity=tda_access.LocalClient.account_info().equity,
-            # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
-        )
-
-    def parse_signal(self) -> tda_access.OrderData:
-        """get order data from current bar"""
-        current_bar = self._data.iloc[-1]
-        return tda_access.OrderData(
-            direction=tda_access.Side(current_bar.signal),
-            # for eqty_risk_lot, short position lot will be negative if valid.
-            # so multiply by signal to get the true lot
-            quantity=current_bar.eqty_risk_lot * current_bar.signal,
-            # TODO usage of base price stop loss is temporary until
-            #   relative stop loss is implemented with data streaming
-            stop_loss=current_bar.stop_loss_base
-        )
+        try:
+            analyzed_data = fc_data_gen.init_fc_data(
+                base_symbol=self._name,
+                price_data=new_data,
+                equity=tda_access.LocalClient.account_info().equity,
+                # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
+            )
+            # current bar is the last closed bar which is prior to the current bar
+            current_bar = analyzed_data.iloc[-2]
+            order_data = tda_access.OrderData(
+                name=self._name,
+                direction=Side(current_bar.signal),
+                quantity=current_bar.eqty_risk_lot * current_bar.signal,
+                stop_loss=current_bar.stop_loss_base
+            )
+        except:
+            order_data = tda_access.OrderData(
+                name=self._name,
+                direction=Side.CLOSE,
+                quantity=0
+            )
+        return order_data
 
 
 class SymbolState(Enum):
@@ -127,6 +112,7 @@ class SymbolManager:
     account_data: tda_access.AccountInfo
     trade_state: SymbolState
     order_id: t.Union[int, None]
+    _status: str
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
@@ -135,6 +121,16 @@ class SymbolManager:
         self.trade_state = self._init_trade_state()
         self.order_id = None
         self.stop_order_id = None
+        self._status = 'OKAY'
+        self._current_signal = None
+
+        self._STATE_LOOKUP = {
+
+            SymbolState.REST: self.rest,
+            SymbolState.FILLED: self.filled,
+            SymbolState.ORDER_PENDING: self.order_pending,
+            SymbolState.ERROR: self.error
+        }
 
     @property
     def entry_bar(self):
@@ -146,13 +142,7 @@ class SymbolManager:
 
     def update_trade_state(self):
         """update trade state"""
-        state_lookup = {
-            SymbolState.FILLED: self.filled,
-            SymbolState.REST: self.rest,
-            SymbolState.ORDER_PENDING: self.order_pending,
-            SymbolState.ERROR: self.error
-        }
-        self.trade_state = state_lookup[self.trade_state]()
+        self.trade_state = self._STATE_LOOKUP[self.trade_state]()
 
     def _init_trade_state(self) -> SymbolState:
         """initialize current trade state of this symbol"""
@@ -162,77 +152,62 @@ class SymbolManager:
             state = SymbolState.FILLED
         return state
 
-    def filled(self):
-        new_trade_state = self.trade_state
-        if self.symbol_data.update_data() is True:
-            order_data = self.symbol_data.parse_signal()
-            # TODO make abstract client. req abstract AccountInfo.positions: dict
-            position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
-            if position is None:
-                # if no position found for this symbol,
-                # stop loss was triggered or position closed externally
-                new_trade_state = SymbolState.REST
-            elif tda_access.Side(order_data.direction) != position.side:
-                position.full_close()
-                self.order_id = None
-                self.stop_order_id = None
-                new_trade_state = SymbolState.REST
-            else:
-                new_trade_state = SymbolState.FILLED
+    def filled(self) -> SymbolState:
+        new_trade_state = SymbolState.FILLED
+        current_signal = self.symbol_data.get_current_signal()
+        position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
+        if position is None:
+            # if no position found for this symbol,
+            # stop loss was triggered or position closed externally
+            new_trade_state = SymbolState.REST
+        elif tda_access.Side(current_signal.direction) != position.side:
+            self.order_id, order_status = tda_access.LocalClient.place_order_spec(position.full_close())
+            self.order_id = None
+            self.stop_order_id = None
+            self._current_signal = None
+            new_trade_state = SymbolState.REST
+
         return new_trade_state
 
-    def rest(self):
-        new_trade_state = self.trade_state
-        if self.symbol_data.update_data():
-            order_data = self.symbol_data.parse_signal()
-            order_lambda = tda_access.OPEN_ORDER.get(
-                order_data.direction,
-                None
-            )
-            # no order template corresponding to the current signal val means trade signal not given
-            if order_lambda is not None:
-                # TODO add to abstract client: req place_order_spec (may need to change to make more generic)
-                self.order_id, order_status = tda_access.LocalClient.place_order_spec(
-                    order_lambda(self.symbol_data.name, order_data.quantity)
-                )
-                stop_loss_lambda = tda_access.OPEN_STOP[tda_access.Side(order_data.direction)]
-                self.stop_order_id = tda_access.LocalClient.place_order_spec(
-                    stop_loss_lambda(
-                        sym=self.symbol_data.name,
-                        qty=order_data.quantity,
-                        stop_price=order_data.stop_loss
-                    )
-                )
-                # if order already filled, we can used the cached account info to place stop loss order,
-                # saves us an additional API call
-                new_trade_state = self.order_pending(
-                    tda_access.LocalClient.get_order_data(order_id=self.order_id, cached=True)
-                )
-            else:
-                new_trade_state = SymbolState.REST
+    def rest(self) -> SymbolState:
+        new_trade_state = SymbolState.REST
+        self._current_signal = self.symbol_data.get_current_signal()
+        order_spec = self._current_signal.open_order_spec
+
+        # no order template corresponding to the current signal val means trade signal not given
+        if order_spec is not None:
+            self.order_id, order_status = tda_access.LocalClient.place_order_spec(order_spec)
+            self._current_signal.status = OrderStatus(order_status)
+            new_trade_state = SymbolState.ORDER_PENDING
         return new_trade_state
 
-    def order_pending(self, order_info: tda_access.OrderData = None):
+    def order_pending(self) -> SymbolState:
         # sourcery skip: lift-return-into-if
-        """resolve the status of the current order (self.order_id is id of the current order)"""
-        if order_info is None:
-            # TODO abstract client. req get_order_data
-            order_info = tda_access.LocalClient.get_order_data(order_id=self.order_id)
-
-        if order_info.status == OrderStatus.FILLED:
+        """
+        resolve the status of the current order
+        set stop loss if status is filled
+        """
+        if self._current_signal.status == OrderStatus.FILLED:
+            # must wait for open order to fill before setting stop,
+            # otherwise it will cancel the initial order
+            self.stop_order_id = tda_access.LocalClient.place_order_spec(
+                self._current_signal.close_order_spec
+            )
             new_trade_state = SymbolState.FILLED
-        elif order_info.status == OrderStatus.REJECTED:
+        elif self._current_signal.status == OrderStatus.REJECTED:
             new_trade_state = SymbolState.ERROR
         else:
             new_trade_state = SymbolState.ORDER_PENDING
         return new_trade_state
 
-    def error(self):
-        """do nothing, remain in error state"""
+    def error(self) -> SymbolState:
+        return SymbolState.ERROR
 
 
 class AccountManager:
     managed: t.List[SymbolManager]
+
+    FILE_PATH = '.\\pkl_data\\account_manager.pkl'
     """
     TODO:
         - dump MDF creation parameters for all symbols to json file
@@ -250,7 +225,6 @@ class AccountManager:
         # symbols we have active positions in but are not being managed by AccountManager for this run-time
         self.not_managed = trade_states.not_managed
         # self.reload_meta_dfs()
-        self.run_manager()
 
     def run_manager(self):
         """
@@ -263,10 +237,20 @@ class AccountManager:
                     -
         :return:
         """
-
         while True:
             for symbol_manager in self.managed:
                 symbol_manager.update_trade_state()
+                self.to_pickle()
+
+    def to_pickle(self):
+        with open(self.__class__.FILE_PATH, 'wb') as file_handler:
+            pickle.dump(self, file_handler)
+
+    @classmethod
+    def load_from_pickle(cls) -> AccountManager:
+        with open(cls.FILE_PATH, 'rb') as file_handler:
+            account_manager = pickle.load(file_handler)
+        return account_manager
 
 
 def init_states(active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]) -> _TradeStates:

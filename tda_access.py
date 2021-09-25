@@ -9,6 +9,7 @@ from __future__ import annotations
 import datetime
 
 from tda.orders.common import OrderType
+from tda.orders.generic import OrderBuilder
 
 import credentials
 import asyncio
@@ -76,38 +77,60 @@ class EmptyDataError(Exception):
 class TickerNotFoundError(Exception):
     """error response from td api is Not Found"""
 
+
 @dataclass
 class OrderData:
+    _OPEN_ORDER = {
+        Side.LONG: lambda sym, qty, _: toe.equity_buy_market(sym, qty),
+        Side.SHORT: lambda sym, qty, _: toe.equity_sell_short_market(sym, qty),
+    }
+
+    _CLOSE_ORDER = {
+        Side.LONG: lambda sym, qty, _: toe.equity_sell_market(sym, qty),
+        Side.SHORT: lambda sym, qty, _: toe.equity_buy_to_cover_market(sym, qty),
+    }
+
+    _OPEN_STOP = {
+        Side.LONG: lambda sym, qty, stop_price: (
+            toe.equity_sell_market(sym, qty)
+            .set_order_type(OrderType.STOP)
+            .set_stop_price(stop_price)
+        ),
+        Side.SHORT: lambda sym, qty, stop_price: (
+            toe.equity_buy_to_cover_market(sym, qty)
+            .set_order_type(OrderType.STOP)
+            .set_stop_price(stop_price)
+        ),
+    }
+
+    ORDER_DICT = t.Dict[Side, t.Callable]
+
+    name: str
     direction: Side
     quantity: int
     stop_loss: t.Union[float, None] = field(default=None)
     status: OrderStatus = field(default=None)
 
+    @property
+    def open_order_spec(self) -> t.Union[OrderBuilder, None]:
+        return self._get_order_spec(OrderData._OPEN_ORDER)
 
-CLOSE_ORDER = {
-    Side.LONG: lambda sym, qty: toe.equity_sell_market(sym, qty),
-    Side.SHORT: lambda sym, qty: toe.equity_buy_to_cover_market(sym, qty),
-}
+    @property
+    def close_order_spec(self) -> t.Union[OrderBuilder, None]:
+        return self._get_order_spec(OrderData._CLOSE_ORDER)
 
+    @property
+    def stop_order_spec(self) -> t.Union[OrderBuilder, None]:
+        return self._get_order_spec(OrderData._OPEN_ORDER)
 
-OPEN_ORDER = {
-    Side.LONG: lambda sym, qty: toe.equity_buy_market(sym, qty),
-    Side.SHORT: lambda sym, qty: toe.equity_sell_short_market(sym, qty),
-}
-
-
-OPEN_STOP = {
-    Side.LONG: lambda sym, qty, stop_price: (
-        toe.equity_sell_market(sym, qty)
-        .set_order_type(OrderType.STOP)
-        .set_stop_price(stop_price)
-    ),
-    Side.SHORT: lambda sym, qty, stop_price: (
-        toe.equity_buy_to_cover_market(sym, qty)
-        .set_order_type(OrderType.STOP)
-        .set_stop_price(stop_price)
-    ),
-}
+    def _get_order_spec(self, order_dict: ORDER_DICT) -> t.Union[OrderBuilder, None]:
+        """
+        abstract method for retrieving order spec corresponding to this order data
+        with a default case that returns None when called
+        """
+        return order_dict.get(self.direction, lambda _, __, ___: None)(
+            self.name, self.quantity, self.stop_loss
+        )
 
 
 @dataclass
@@ -117,6 +140,7 @@ class Position:
     value: int = field(init=False)
     qty: int = field(init=False)
     _side: Side = field(init=False)
+    _order_data: OrderData = field(init=False)
 
     def __post_init__(self):
         self.symbol = self.raw_position['instrument']['symbol']
@@ -128,15 +152,18 @@ class Position:
             self.qty = self.raw_position['longQuantity']
             self._side = Side.LONG
 
+        self._order_data = OrderData(
+            name=self.symbol,
+            direction=self._side,
+            quantity=self.qty,
+        )
+
     @property
     def side(self):
         return self._side
 
-    def full_close(self):
-        CLOSE_ORDER[self._side](self.symbol, self.qty)
-
-    def open(self, quantity):
-        OPEN_ORDER[self._side](self.symbol, quantity)
+    def full_close(self) -> OrderBuilder:
+        return self._order_data.close_order_spec
 
 
 @dataclass
@@ -228,6 +255,7 @@ class _LocalClientMeta(type):
         return parse_orders(cls.orders(status=status, cached=cached))
 
     def get_order_data(cls, order_id, cached=False) -> OrderData:
+        """TODO call in debugger to get location of symbol name"""
         order = cls.orders_by_id(cached=cached)[order_id]
         return OrderData(
             direction=Side(order['orderLegCollection'][0]['instruction']),
