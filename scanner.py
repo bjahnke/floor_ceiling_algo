@@ -56,6 +56,7 @@ failed.str_nan_in_price = set()
 
 # TODO create scanner class with raw_scan_results as attribute
 raw_scan_results = []
+all_price_data: t.Union[pd.DataFrame, None] = None
 
 
 def fc_scan_symbol(
@@ -81,7 +82,7 @@ def fc_scan_symbol(
     #     freq_range=freq_range
     # )
 
-    price_data = fc_data_gen.new_init_fc_data(
+    price_data = fc_data_gen.init_fc_data(
         base_symbol=symbol,
         price_data=price_data,
         equity=account_info.equity
@@ -111,7 +112,7 @@ def fc_scan_symbol(
     # plt.show()
     Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
     out_name = f'{scan_output_loc}/{symbol}'
-    price_data.to_csv(f'{out_name}.csv')
+    # price_data.to_csv(f'{out_name}.csv')
     plt.savefig(f'{out_name}.png', bbox_inches='tight')
     # except tda_access.EmptyDataError:
     # except tda_access.TickerNotFoundError:
@@ -127,7 +128,7 @@ def fc_scan_symbol(
     scan_result['symbol'] = symbol
     scan_result['up_to_date'] = price_data.index[-1]
 
-    return scan_result
+    return scan_result, price_data
 
 
 def fc_scan_all(
@@ -155,6 +156,7 @@ def fc_scan_all(
     if bench_symbol is not None:
         bench_data = fetch_price_history(bench_symbol, freq_range)
 
+    global all_price_data
     while len(symbols) > 0:
         symbol = symbols[0]
 
@@ -168,12 +170,18 @@ def fc_scan_all(
                 symbols.pop(0)
                 continue
 
-            scan_result = fc_scan_symbol(
+            scan_result, data = fc_scan_symbol(
                 symbol=symbol,
                 price_data=data,
                 bench_data=bench_data,
                 freq_range=freq_range
             )
+
+            # TODO turn into class attribute when scanner becomes class
+            if all_price_data is None:
+                all_price_data = data.copy()
+            else:
+                all_price_data = pd.concat([all_price_data, data])
 
         except tda_access.EmptyDataError:
             print(f'no data? {symbol}')
@@ -271,7 +279,8 @@ def main(
     freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
     bench: str = None,
     close_range: Range = Range(),
-    volume_range: Range = Range()
+    volume_range: Range = Range(),
+    price_data_out_file_path=r'.\scan_out\price_data.csv'
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     def post_process(raw_scan_res: t.List[t.Dict]):
@@ -282,7 +291,7 @@ def main(
         scan_out['trade_risk'] = (
             (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         )
-
+        all_price_data.to_csv(price_data_out_file_path)
         scan_results_to_excel(scan_out)
 
     try:
@@ -376,17 +385,24 @@ def test_scanner():
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
 
 
-def test_signals():
-    price_data = yf_price_history('ADA-USD')
-    price_data = fc_data_gen.new_init_fc_data(
+def test_signal(symbol):
+    # price_data = yf_price_history('ADA-USD')
+    price_data = yf_price_history(symbol)
+    price_data = fc_data_gen.init_fc_data(
         base_symbol='ADA-USD',
         price_data=price_data,
         equity=account_info.equity
     )
+    return price_data
 
 
 if __name__ == '__main__':
-    test_scanner()
+    main(
+        symbols=['CAHCU'],
+        fetch_price_history=yf_price_history
+    )
+    # pd = test_signal('CAHCU')
+    print('done')
 
 
 
