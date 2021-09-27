@@ -131,8 +131,8 @@ def init_fc_data(
         window=window,
         limit=limit,
     )[0]
-    if price_data is None:
-        raise FcLosesToBuyHoldError(f'{base_symbol} Floor/Ceiling does not beat buy and hold')
+    # if price_data is None:
+    #     raise FcLosesToBuyHoldError(f'{base_symbol} Floor/Ceiling does not beat buy and hold')
 
     price_data['ceiling'] = price_data.loc[price_data.regime_floorceiling == -1, 'regime_change']
     price_data['floor'] = price_data.loc[price_data.regime_floorceiling == 1, 'regime_change']
@@ -145,11 +145,10 @@ def init_fc_data(
 
     price_data['eqty_risk_lot'] = 0
     price_data['equal_weight_lot'] = 0
-    signals = price_data[price_data.signal.shift(-1).isnull() & price_data.signal.notnull()]
 
     # don't waste time on pandas operations if there are no signals to
     # produce positions sizes
-    if len(signals.index) > 0:
+    if len(price_data.signals.slices()) > 0:
         price_data = btu.get_position_size(
             data=price_data,
             # TODO resolve difference

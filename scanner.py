@@ -201,6 +201,8 @@ def fc_scan_all(
             failed.str_nan_in_price.add(symbols.pop(0))
         except fc_data_gen.FcLosesToBuyHoldError:
             failed.no_high_score.add(symbols.pop(0))
+        except fc_data_gen.NoSignalsError:
+            symbols.pop(0)
         except FileNotFoundError:
             # for some reason PRN can not be written to files, results in FileNotFoundError
             symbols.pop(0)
