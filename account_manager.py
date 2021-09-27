@@ -59,6 +59,7 @@ class SymbolData:
         self._bench_data = None
         self._bar_freq = None
         self.MARKET = market_type
+        self._ENTER_ON_FRESH_SIGNAL = enter_on_fresh_signal
 
     @property
     def name(self):
@@ -85,12 +86,21 @@ class SymbolData:
             )
             # current bar is the last closed bar which is prior to the current bar
             current_bar = analyzed_data.iloc[-2]
+            current_signal = Side(current_bar.signal)
             order_data = tda_access.OrderData(
                 name=self._name,
-                direction=Side(current_bar.signal),
+                direction=current_signal,
                 quantity=current_bar.eqty_risk_lot * current_bar.signal,
                 stop_loss=current_bar.stop_loss_base
             )
+            if self._ENTER_ON_FRESH_SIGNAL:
+                prior_bar_signal = Side(analyzed_data.iloc[-3].signal)
+                if Side.CLOSE != current_signal == prior_bar_signal:
+                    order_data = tda_access.OrderData(
+                        name=self._name,
+                        direction=Side.CLOSE,
+                        quantity=0
+                    )
         except:
             order_data = tda_access.OrderData(
                 name=self._name,
