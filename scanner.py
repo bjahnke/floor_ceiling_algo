@@ -293,6 +293,7 @@ def main(
         scan_out['trade_risk'] = (
             (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         )
+        scan_out['trades'] = len(scan_out.signals.slices())
         all_price_data.to_csv(price_data_out_file_path)
         scan_results_to_excel(scan_out)
 
