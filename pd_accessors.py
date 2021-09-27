@@ -241,7 +241,7 @@ class Stats(DfAccessorBase):
 
     @property
     def daily_log_returns(self):
-        return trade_stats.simple_returns(self._obj.b_close) * self._obj.signal
+        return trade_stats.simple_returns(self._obj.b_close)
 
 
 @pd.api.extensions.register_dataframe_accessor('lots')
