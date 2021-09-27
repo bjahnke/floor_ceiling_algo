@@ -111,6 +111,10 @@ class OrderData:
     stop_loss: t.Union[float, None] = field(default=None)
     status: OrderStatus = field(default=None)
 
+    def __post_init__(self):
+        assert self.quantity >= 0
+
+
     @property
     def open_order_spec(self) -> t.Union[OrderBuilder, None]:
         return self._get_order_spec(OrderData._OPEN_ORDER)

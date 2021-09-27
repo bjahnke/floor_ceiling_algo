@@ -84,6 +84,13 @@ class SymbolData:
                 equity=tda_access.LocalClient.account_info().equity,
                 # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
             )
+        except:
+            order_data = tda_access.OrderData(
+                name=self._name,
+                direction=Side.CLOSE,
+                quantity=0
+            )
+        else:
             # current bar is the last closed bar which is prior to the current bar
             current_bar = analyzed_data.iloc[-2]
             current_signal = Side(current_bar.signal)
@@ -93,20 +100,16 @@ class SymbolData:
                 quantity=current_bar.eqty_risk_lot * current_bar.signal,
                 stop_loss=current_bar.stop_loss_base
             )
+            # TODO this code should probably be in SymbolManager somehow
+            #   possibly need to merge the 2 classes
             if self._ENTER_ON_FRESH_SIGNAL:
                 prior_bar_signal = Side(analyzed_data.iloc[-3].signal)
                 if Side.CLOSE != current_signal == prior_bar_signal:
                     order_data = tda_access.OrderData(
                         name=self._name,
-                        direction=Side.CLOSE,
+                        direction=current_signal,
                         quantity=0
                     )
-        except:
-            order_data = tda_access.OrderData(
-                name=self._name,
-                direction=Side.CLOSE,
-                quantity=0
-            )
         return order_data
 
 
@@ -170,7 +173,7 @@ class SymbolManager:
             # if no position found for this symbol,
             # stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
-        elif tda_access.Side(current_signal.direction) != position.side:
+        elif current_signal.direction != position.side:
             self.order_id, order_status = tda_access.LocalClient.place_order_spec(position.full_close())
             self.order_id = None
             self.stop_order_id = None
