@@ -250,7 +250,7 @@ def regime_scan(
     # TODO accessor only usable for base price currently, need solution for applying to relative
     # cumulative_relative_returns = price_data.signals.cumulative_returns()
 
-    signal_start_data = price_data.signals.slices()[-1].index[-1]
+    signal_start_data = price_data.signals.slices()[-1].index[0]
 
     cumulative_absolute_returns = price_data.signals.cumulative_returns()[-1]
 
