@@ -9,10 +9,12 @@ def main():
         account_manager = AccountManager.load_from_pickle()
     except FileNotFoundError:
         account_manager = AccountManager(
-            SymbolData('TCACU', yf_price_history),
             SymbolData('BCTX', yf_price_history),
             SymbolData('CRVS', yf_price_history),
-            SymbolData('HIIU', yf_price_history),
+            SymbolData('EEIQ', yf_price_history),
+            SymbolData('LZ', yf_price_history),
+            SymbolData('EAR', yf_price_history),
+            SymbolData('NCTY', yf_price_history),
         )
     account_manager.run_manager()
 
