@@ -115,6 +115,7 @@ class OrderData:
         assert self.quantity >= 0
 
 
+
     @property
     def open_order_spec(self) -> t.Union[OrderBuilder, None]:
         return self._get_order_spec(OrderData._OPEN_ORDER)
@@ -128,13 +129,18 @@ class OrderData:
         return self._get_order_spec(OrderData._OPEN_ORDER)
 
     def _get_order_spec(self, order_dict: ORDER_DICT) -> t.Union[OrderBuilder, None]:
+        # sourcery skip: lift-return-into-if
         """
         abstract method for retrieving order spec corresponding to this order data
         with a default case that returns None when called
         """
-        return order_dict.get(self.direction, lambda _, __, ___: None)(
-            self.name, self.quantity, self.stop_loss
-        )
+        if self.quantity == 0:
+            order_spec = None
+        else:
+            order_spec = order_dict.get(self.direction, lambda _, __, ___: None)(
+                self.name, self.quantity, self.stop_loss
+            )
+        return order_spec
 
 
 @dataclass
