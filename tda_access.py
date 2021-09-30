@@ -375,7 +375,11 @@ class LocalClient(metaclass=_LocalClientMeta):
         df = df.rename(columns={'datetime': 'time'})
         df.index = df.time
         # drop columns other than those mentioned (maybe want to save volume)
-        df = df[['open', 'high', 'close', 'low']]
+        df['b_high'] = df.high
+        df['b_low'] = df.low
+        df['b_close'] = df.close
+
+        df = df[['b_high', 'b_low', 'b_close', 'open', 'high', 'close', 'low', 'volume']]
 
         return df
 

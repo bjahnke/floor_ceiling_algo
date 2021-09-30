@@ -2,6 +2,7 @@
 """
 import cProfile
 import json
+from datetime import datetime, timedelta
 from pathlib import Path
 from time import time
 import httpx
@@ -320,7 +321,8 @@ def main(
         )
     except:
         # output existing results if any uncaught exception occurs
-        post_process(raw_scan_results)
+        if len(raw_scan_results) > 0:
+            post_process(raw_scan_results)
         raise
     else:
         post_process(raw_scan_results)
@@ -344,7 +346,7 @@ def scan_results_to_excel(data: pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
 
 def yf_price_history(symbol, freq_range=None):
     try:
-        data: pd.DataFrame = yf.Ticker(symbol).history(period='1y', interval='1h')
+        data: pd.DataFrame = yf.Ticker(symbol).history(period='3m', interval='30m')
     except json.decoder.JSONDecodeError:
         return pd.DataFrame()
     except requests.exceptions.ConnectionError:
@@ -399,8 +401,8 @@ def test_scanner():
     main(
         symbols=sp500,
         bench=None,
-        freq_range=tdargs.freqs.day.range(tdargs.periods.y3),
-        fetch_price_history=yf_price_history
+        freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=200)),
+        fetch_price_history=tda_access.LocalClient.price_history
     )
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
@@ -429,14 +431,7 @@ def scan_nasdaq():
 
 
 if __name__ == '__main__':
-    stocks = pd.read_excel(r'C:\Users\temp\OneDrive\symbol_data\re_scan.xlsx')
-    main(
-        # symbols=cb_usd_products.id.to_list(),
-        symbols=stocks.symbol.to_list(),
-        fetch_price_history=yf_price_history,
-        close_range=Range(_min=5),
-        # volume_range=Range(_min=100000)
-    )
+    test_scanner()
 
 
 
