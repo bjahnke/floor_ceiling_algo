@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from time import time
 import httpx
+import requests
 from matplotlib import pyplot as plt
 import back_test_utils
 import fc_data_gen
@@ -167,6 +168,7 @@ def fc_scan_all(
                 not close_range.is_in_range(data.close[-1]) or
                 not volume_range.is_in_range(data.volume[-1])
             ):
+                print(f'{symbol} skipped due to price out of range')
                 symbols.pop(0)
                 continue
 
@@ -220,6 +222,16 @@ def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
     # Change the order of the columns
     if len(market_regime.index.to_list()) == 0:
         raise Exception("no data output")
+    market_regime = market_regime[[
+        'symbol',
+        'signal_start',
+        'signal',
+        'cum_absolute_returns',
+        'score',
+        'close',
+        'position_size',
+        'stop_loss_base'
+    ]]
     # Sort columns by regime change date
     market_regime.sort_values(
         by=['signal_start'], ascending=False, inplace=True
@@ -325,6 +337,7 @@ def scan_results_to_excel(data: pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
             if i > 0:
                 prefix = f'({i})'
             data.to_excel(f'{prefix}{file_path}')
+            break
         except PermissionError:
             i += 1
 
@@ -333,6 +346,10 @@ def yf_price_history(symbol, freq_range=None):
     try:
         data: pd.DataFrame = yf.Ticker(symbol).history(period='1y', interval='1h')
     except json.decoder.JSONDecodeError:
+        return pd.DataFrame()
+    except requests.exceptions.ConnectionError:
+        return pd.DataFrame()
+    except AttributeError:
         return pd.DataFrame()
 
     if symbol == 'CCI30':
@@ -361,6 +378,7 @@ def yf_price_history(symbol, freq_range=None):
         pass
 
     return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
+
 
 def test_scanner():
     # # TODO ADP
@@ -399,13 +417,26 @@ def test_signal(symbol):
     return price_data
 
 
-if __name__ == '__main__':
+def scan_nasdaq():
+    stocks = pd.read_excel(r'.\symbols\nasdaq.xlsx')
     main(
-        symbols=['CAHCU'],
-        fetch_price_history=yf_price_history
+        # symbols=cb_usd_products.id.to_list(),
+        symbols=stocks.Symbol.to_list(),
+        fetch_price_history=yf_price_history,
+        close_range=Range(_min=1, _max=30),
+        # volume_range=Range(_min=100000)
     )
-    # pd = test_signal('CAHCU')
-    print('done')
+
+
+if __name__ == '__main__':
+    stocks = pd.read_excel(r'C:\Users\temp\OneDrive\symbol_data\re_scan.xlsx')
+    main(
+        # symbols=cb_usd_products.id.to_list(),
+        symbols=stocks.symbol.to_list(),
+        fetch_price_history=yf_price_history,
+        close_range=Range(_min=5),
+        # volume_range=Range(_min=100000)
+    )
 
 
 

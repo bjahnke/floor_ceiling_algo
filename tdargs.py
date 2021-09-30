@@ -43,6 +43,7 @@ class FreqRangeArgs:
     freq: Any
     range: Any
 
+
 def time_slice(left_bound: datetime, right_bound: datetime):
     assert type(left_bound) == datetime
     return _TimeSliceArgs(left_bound, right_bound, _TypeMap(None, None))
@@ -53,6 +54,7 @@ class _TimePeriodArgs:
     period: Any
     end: Any
     start: Any
+
 
 def time_period(left_bound: _TypeMap, right_bound: datetime):
     assert type(left_bound) == _TypeMap

@@ -112,9 +112,8 @@ class OrderData:
     status: OrderStatus = field(default=None)
 
     def __post_init__(self):
-        assert self.quantity >= 0
-
-
+        if self.quantity < 0:
+            self.quantity = 0
 
     @property
     def open_order_spec(self) -> t.Union[OrderBuilder, None]:
@@ -381,8 +380,5 @@ class LocalClient(metaclass=_LocalClientMeta):
         return df
 
 
-if __name__ == '__main__':
-    stream_func = LocalClient.init_futures_stream()
-    asyncio.run(stream_func('/MESU21'))
-    print('hi')
+
 

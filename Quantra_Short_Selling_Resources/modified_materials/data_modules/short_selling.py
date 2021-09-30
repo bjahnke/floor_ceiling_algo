@@ -194,8 +194,8 @@ def graph_regime_fc(ticker,df,y,th,sl,sh,clg,flr,bs,rg,st,mt,bo):
     if bo > 0:
 #         ax1.plot([],[],linewidth=5, label=str(bo)+' days high', color='m',alpha=0.3)
 #         ax1.plot([],[],linewidth=5, label=str(bo) + ' days low', color='b',alpha=0.3)
-        rolling_min= close.rolling(window=bo).min()
-        rolling_max= close.rolling(window=bo).max()
+        rolling_min= close.rolling(window=bo)._min()
+        rolling_max= close.rolling(window=bo)._max()
         ax1.fill_between(date, close, rolling_min,
                          where=((regime ==1)&(close > rolling_min)), facecolor='b', alpha=0.2)
         ax1.fill_between(date,close, rolling_max,
@@ -225,8 +225,8 @@ def regime_breakout_breakdown(breakout_period,df,high,low):
     """
     
     # define rolling high/low
-    rolling_high = df[high].rolling(window=breakout_period,min_periods=breakout_period).max() # 
-    rolling_low = df[low].rolling(window=breakout_period,min_periods=breakout_period).min()
+    rolling_high = df[high].rolling(window=breakout_period,min_periods=breakout_period)._max() #
+    rolling_low = df[low].rolling(window=breakout_period,min_periods=breakout_period)._min()
     
     # when new high bull, when new low: bear
     df['regime_breakout_breakdown'+'_'+str(breakout_period)] = np.where(df[high]>= rolling_high,1,np.where(df[low]<=rolling_low,-1,np.nan))
@@ -299,8 +299,8 @@ def swings(df, high, low, argrel_window):
     last_sign = np.sign(high_low[swing_high_low][-1])
 
     # Step 8: Instantiate last swing high and low dates
-    last_slo_dt = df[df[swing_low] > 0].index.max()
-    last_shi_dt = df[df[swing_high] > 0].index.max()
+    last_slo_dt = df[df[swing_low] > 0].index._max()
+    last_shi_dt = df[df[swing_high] > 0].index._max()
 
     # Step 9: Test for extreme values
     if (last_sign == -1) & (last_shi_dt != df[last_slo_dt:][swing_high].idxmax()):
@@ -352,11 +352,11 @@ def regime_fc(df,close,swing_low,swing_high,threshold,t_dev,decimals):
     for i in range(1,len(regime)): 
 
         if regime[swing_high][i]>0: # ignores swing lows
-            top = regime[floor_ix:regime.index[i]][swing_high].max() # highest swing high from range[floor_ix:swing[i]]
+            top = regime[floor_ix:regime.index[i]][swing_high]._max() # highest swing high from range[floor_ix:swing[i]]
             ceiling_test = round((regime[swing_high][i]-top)/regime[stdev][i],1) # test vs highest
 
             if ceiling_test <= -threshold: # if swing <= top - x * stdev
-                ceiling = regime[floor_ix:regime.index[i]][swing_high].max() # ceiling = top
+                ceiling = regime[floor_ix:regime.index[i]][swing_high]._max() # ceiling = top
                 ceiling_ix = regime[floor_ix:regime.index[i]][swing_high].idxmax() # ceiling index  
                 regime.loc[ceiling_ix,ceiling] = ceiling # assign ceiling
 
@@ -371,11 +371,11 @@ def regime_fc(df,close,swing_low,swing_high,threshold,t_dev,decimals):
                     floor_found = False
 
         if regime[swing_low][i]>0: # ignores swing highs
-            bottom = regime[ceiling_ix:regime.index[i]][swing_low].min() #lowest swing low from ceiling
+            bottom = regime[ceiling_ix:regime.index[i]][swing_low]._min() #lowest swing low from ceiling
             floor_test = round((regime[swing_low][i]-bottom)/regime[stdev][i],1) # test vs lowest
 
             if floor_test >= threshold: # if swing > bottom + n * stdev
-                floor = regime[ceiling_ix:regime.index[i]][swing_low].min() # floor = bottom
+                floor = regime[ceiling_ix:regime.index[i]][swing_low]._min() # floor = bottom
                 floor_ix = regime[ceiling_ix:regime.index[i]][swing_low].idxmin()  
                 regime.loc[floor_ix,floor] = floor # assign floor
 

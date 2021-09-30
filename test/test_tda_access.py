@@ -9,7 +9,7 @@ from tda.orders.equities import equity_buy_market, equity_sell_market
 from tda.client import Client
 import tda_access as ta
 import pandas as pd
-
+import tdargs
 
 COS = Client.Order.Status
 
@@ -60,6 +60,13 @@ def test_market_hours():
     print('done')
 
 
+def test_pickle():
+    r1 = pd.read_pickle('new_pickle.pkl')
+    res = ta.LocalClient.price_history('AFL', tdargs.freqs.day.range(tdargs.periods.y5))
+    res.to_pickle('new_pickle')
+
+
+
 if __name__ == '__main__':
-    test_market_hours()
+    test_pickle()
 

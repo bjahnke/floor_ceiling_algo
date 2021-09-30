@@ -17,6 +17,7 @@ from trade_stats import (
 )
 import pd_accessors
 
+
 @dataclass
 class AnalysisData:
     df: pd.DataFrame
@@ -31,6 +32,10 @@ class AnalysisData:
 
 class NoSwingsError(Exception):
     """FC calc cannot continue because no swings were detected"""
+
+
+class StrNanInPriceError(Exception):
+    """Relative price calculation fails because a string nan is in price history"""
 
 
 def ma_crossover(slow_ma, fast_ma):
@@ -918,12 +923,12 @@ def init_fc_signal_stoploss(
     high_score: the best results in terms of robustness score()
     
     """
-    analysis_result = AnalysisData(
-        df=high_score,
-        stats=pd.DataFrame(stats),
-        perf=perf,
-        best_rar=best_rar
-    )
+    # analysis_result = AnalysisData(
+    #     df=high_score,
+    #     stats=pd.DataFrame(stats),
+    #     perf=perf,
+    #     best_rar=best_rar
+    # )
     return high_score, perf, row, best_rar
 
 

@@ -55,6 +55,7 @@ class SymbolData:
         self._name = base_symbol
         self._bench_symbol = bench_symbol
         self._freq_range = freq_range
+        self._fetch_data = fetch_data_function
         self._data = None
         self._bench_data = None
         self._bar_freq = None
