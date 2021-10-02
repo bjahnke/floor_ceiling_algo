@@ -18,6 +18,8 @@ import tda_access
 from back_test_utils import NoSwingsError
 import yfinance as yf
 from dataclasses import dataclass, field
+import schedule
+import time
 
 account_info = tda_access.LocalClient.account_info()
 
@@ -293,7 +295,7 @@ def main(
     bench: str = None,
     close_range: Range = Range(),
     volume_range: Range = Range(),
-    price_data_out_file_path=r'.\scan_out\price_data.csv'
+    scan_out_file_path=r'.\scan_out\price_data.csv'
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     def post_process(raw_scan_res: t.List[t.Dict]):
@@ -305,7 +307,7 @@ def main(
             (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         )
         scan_out['trades'] = len(scan_out.signals.slices())
-        all_price_data.to_csv(price_data_out_file_path)
+        all_price_data.to_csv(scan_out_file_path)
         scan_results_to_excel(scan_out)
 
     try:
@@ -342,6 +344,24 @@ def scan_results_to_excel(data: pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
             i += 1
 
 
+def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
+    """format price data to what is expected by scanner/strategy code"""
+
+    data.columns = map(lambda x: x.lower(), data.columns.to_list())
+
+    data['b_high'] = data.high
+    data['b_low'] = data.low
+    data['b_close'] = data.close
+
+    # convert date time to timezone unaware
+    try:
+        data.index = data.index.tz_convert(None)
+    except AttributeError:
+        pass
+
+    return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
+
+
 def yf_price_history(symbol, freq_range=None):
     try:
         price_data: pd.DataFrame = yf.Ticker(symbol).history(
@@ -368,22 +388,11 @@ def yf_price_history(symbol, freq_range=None):
         'Close': 'close',
         'Volume': 'volume'
     })
-    # the following columns are needed for compatibility with current
-    # implementation of init_fc_data.
-    price_data['b_high'] = price_data.high
-    price_data['b_low'] = price_data.low
-    price_data['b_close'] = price_data.close
 
-    # convert date time to timezone unaware
-    try:
-        price_data.index = price_data.index.tz_convert(None)
-    except AttributeError:
-        pass
-
-    return price_data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
+    return format_price_data(price_data)
 
 
-def test_scanner():
+def scan_sp500(scan_out_file_path: str):
     # # TODO ADP
     # # TODO find method to get reliable updated source and with stocks
     SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
@@ -403,7 +412,8 @@ def test_scanner():
         symbols=sp500,
         bench=None,
         freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=200)),
-        fetch_price_history=tda_access.LocalClient.price_history
+        fetch_price_history=tda_access.LocalClient.price_history,
+        scan_out_file_path=scan_out_file_path
     )
     print(f'Time Elapsed: {time()-start/60} minutes')
     # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
@@ -429,6 +439,14 @@ def scan_nasdaq():
         close_range=Range(_min=1, _max=30),
         # volume_range=Range(_min=100000)
     )
+
+
+def continuous_scan(job: t.Callable):
+    """"""
+    schedule.every().day.at('01:00').do(job)
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
 
 
 if __name__ == '__main__':

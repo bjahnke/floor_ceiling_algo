@@ -19,5 +19,6 @@ setup(
         'httpx',
         'tda-api',
         'yfinance',
+        'schedule',
     ]
 )
