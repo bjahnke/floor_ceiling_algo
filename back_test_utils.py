@@ -1,4 +1,3 @@
-import typing as t
 
 import matplotlib.pyplot as plt
 import pandas as pd

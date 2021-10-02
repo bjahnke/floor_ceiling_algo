@@ -1,6 +1,5 @@
 """
 """
-import cProfile
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -17,7 +16,6 @@ import trade_stats
 from dotmap import DotMap
 import tda_access
 from back_test_utils import NoSwingsError
-from strategy_utils import Side
 import yfinance as yf
 from dataclasses import dataclass, field
 
@@ -346,7 +344,10 @@ def scan_results_to_excel(data: pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
 
 def yf_price_history(symbol, freq_range=None):
     try:
-        data: pd.DataFrame = yf.Ticker(symbol).history(period='3m', interval='30m')
+        price_data: pd.DataFrame = yf.Ticker(symbol).history(
+            # period=datetime.now() - timedelta(days=58), interval='15m'
+            period='1mo', interval='15m'
+        )
     except json.decoder.JSONDecodeError:
         return pd.DataFrame()
     except requests.exceptions.ConnectionError:
@@ -355,12 +356,12 @@ def yf_price_history(symbol, freq_range=None):
         return pd.DataFrame()
 
     if symbol == 'CCI30':
-        data = pd.read_csv('cci30_OHLCV.csv')
-        data.Date = pd.to_datetime(data.Date, infer_datetime_format=True)
-        data.index = data.Date
-        data = data.sort_index()
+        price_data = pd.read_csv('cci30_OHLCV.csv')
+        price_data.Date = pd.to_datetime(price_data.Date, infer_datetime_format=True)
+        price_data.index = price_data.Date
+        price_data = price_data.sort_index()
 
-    data = data.rename(columns={
+    price_data = price_data.rename(columns={
         'Open': 'open',
         'High': 'high',
         'Low': 'low',
@@ -369,17 +370,17 @@ def yf_price_history(symbol, freq_range=None):
     })
     # the following columns are needed for compatibility with current
     # implementation of init_fc_data.
-    data['b_high'] = data.high
-    data['b_low'] = data.low
-    data['b_close'] = data.close
+    price_data['b_high'] = price_data.high
+    price_data['b_low'] = price_data.low
+    price_data['b_close'] = price_data.close
 
     # convert date time to timezone unaware
     try:
-        data.index = data.index.tz_convert(None)
+        price_data.index = price_data.index.tz_convert(None)
     except AttributeError:
         pass
 
-    return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
+    return price_data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
 
 
 def test_scanner():
@@ -431,7 +432,11 @@ def scan_nasdaq():
 
 
 if __name__ == '__main__':
-    test_scanner()
+    main(
+        symbols=['AAPL'],
+        fetch_price_history=yf_price_history
+    )
+    print('done')
 
 
 
