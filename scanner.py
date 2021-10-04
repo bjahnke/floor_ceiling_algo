@@ -25,6 +25,26 @@ account_info = tda_access.LocalClient.account_info()
 
 
 @dataclass
+class ScanOutInfo:
+    _out_dir: str
+    _report_name: str
+    _price_data_name: str
+
+    def __post_init__(self):
+        assert self._report_name[-5:] == '.xlsx'
+        assert self._price_data_name[-4:] == '.csv'
+
+    @property
+    def report_fp(self):
+        """report file path"""
+        return fr'{self._out_dir}\{self._report_name}'
+
+    @property
+    def data_fp(self):
+        return fr'{self._out_dir}\{self._price_data_name}'
+
+
+@dataclass
 class Range:
     _min: t.Union[None, float] = field(default=None)
     _max: t.Union[None, float] = field(default=None)
@@ -181,6 +201,7 @@ def fc_scan_all(
             )
 
             # TODO turn into class attribute when scanner becomes class
+            data['symbol'] = symbol
             if all_price_data is None:
                 all_price_data = data.copy()
             else:
@@ -291,11 +312,11 @@ def cumulative_percent_returns(price_data, regime_change_date, arg2):
 def main(
     symbols: t.List[str],
     fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
+    scan_out_info: ScanOutInfo,
     freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
     bench: str = None,
     close_range: Range = Range(),
     volume_range: Range = Range(),
-    scan_out_file_path=r'.\scan_out\price_data.csv'
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     def post_process(raw_scan_res: t.List[t.Dict]):
@@ -307,8 +328,8 @@ def main(
             (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         )
         scan_out['trades'] = len(scan_out.signals.slices())
-        all_price_data.to_csv(scan_out_file_path)
-        scan_results_to_excel(scan_out)
+        all_price_data.to_csv(scan_out_info.data_fp)
+        scan_results_to_excel(scan_out, scan_out_info.report_fp)
 
     try:
         scan_results = fc_scan_all(
@@ -330,7 +351,7 @@ def main(
     print('done.')
 
 
-def scan_results_to_excel(data: pd.DataFrame, file_path='SPC_REGIME_SCAN.xlsx'):
+def scan_results_to_excel(data: pd.DataFrame, file_path: str):
     """write data to file. if file opened prepend a number until successful"""
     i = 0
     prefix = ''
@@ -392,9 +413,7 @@ def yf_price_history(symbol, freq_range=None):
     return format_price_data(price_data)
 
 
-def scan_sp500(scan_out_file_path: str):
-    # # TODO ADP
-    # # TODO find method to get reliable updated source and with stocks
+def get_sp500_symbols():
     SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
 
     # Load S&P 500 composition from documentation
@@ -405,18 +424,7 @@ def scan_sp500(scan_out_file_path: str):
             "User-Agent": "Mozilla/5.0"
         }
     ).read().decode().split()
-    #
-
-    start = time()
-    main(
-        symbols=sp500,
-        bench=None,
-        freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=200)),
-        fetch_price_history=tda_access.LocalClient.price_history,
-        scan_out_file_path=scan_out_file_path
-    )
-    print(f'Time Elapsed: {time()-start/60} minutes')
-    # cProfile.run('main(symbols=[\'LB\'], bench=\'SPX\')', filename='output.prof')
+    return sp500
 
 
 def test_signal(symbol):
@@ -441,9 +449,9 @@ def scan_nasdaq():
     )
 
 
-def continuous_scan(job: t.Callable):
+def continuous_scan(job: t.Callable, run_at_time: str = '01:00'):
     """"""
-    schedule.every().day.at('01:00').do(job)
+    schedule.every().day.at(run_at_time).do(job)
     while True:
         schedule.run_pending()
         time.sleep(60)
