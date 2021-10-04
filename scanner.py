@@ -319,6 +319,9 @@ def main(
     volume_range: Range = Range(),
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
+    global raw_scan_results
+    global all_price_data
+
     def post_process(raw_scan_res: t.List[t.Dict]):
         scan_out: pd.DataFrame = format_scan_results(raw_scan_res)
         # add columns post process for convenience
@@ -348,6 +351,9 @@ def main(
     else:
         post_process(raw_scan_results)
 
+    # reset globals upon completion so continuous scanner doesn't include prior runs in output data
+    all_price_data = None
+    raw_scan_results = []
     print('done.')
 
 
