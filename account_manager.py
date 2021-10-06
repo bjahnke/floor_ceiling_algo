@@ -96,10 +96,15 @@ class SymbolData:
                 quantity=0
             )
         else:
-            self._fc_kwargs = {
-                'st_list': stats.st[-1],
-                'mt_list': stats.mt[-1]
-            }
+            if self._fc_kwargs.get('st_list', None) is None:
+                try:
+                    self._fc_kwargs = {
+                        'st_list': stats.st.iloc[-1],
+                        'mt_list': stats.mt.iloc[-1]
+                    }
+                except IndexError:
+                    print('out of bounds')
+                    raise
             # current bar is the last closed bar which is prior to the current bar
             current_bar = analyzed_data.iloc[-2]
             current_signal = Side(current_bar.signal)
