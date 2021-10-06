@@ -1,3 +1,4 @@
+from typing import List, Tuple
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -719,8 +720,7 @@ def init_fc_signal_stoploss(
     symbol: str,
     base_close: str,
     relative_close: str,
-    st_list: range,
-    mt_list: range,
+    ma_pairs: List[Tuple[float, float]],
     transaction_cost: float,
     percentile: float,
     min_periods: int,
@@ -729,6 +729,7 @@ def init_fc_signal_stoploss(
 ):
     """
     TODO return info on selected signal (smas, etc)
+    :param ma_pairs:
     :param fc_data:
     :param symbol:
     :param base_close:
@@ -742,6 +743,8 @@ def init_fc_signal_stoploss(
     :param limit:
     :return:
     """
+
+    # cumulative performance if multiple symbols are being analyzed
     perf = pd.DataFrame()
     best_rar = None
     # ==================================
@@ -763,10 +766,7 @@ def init_fc_signal_stoploss(
     sw_rebased_low = 'sw_low'
     sw_rebased_high = 'sw_high'
     high_score = None
-
     stats = []
-    ma_pairs = [(st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt]
-
     # deltas: pd.DataFrame = fc_data[relative_close].price_opr.sma_signals_vector(ma_pairs)
 
     for st, mt in ma_pairs:
@@ -843,6 +843,7 @@ def init_fc_signal_stoploss(
         data_sliced[daily_returns_col] = (
             data_sliced['r_return_1d'] * data_sliced[signal_col].shift(1)
         )
+
         data_sliced[daily_returns_col] = transaction_costs(
             data=data_sliced,
             position_column=signal_col,
@@ -887,7 +888,8 @@ def init_fc_signal_stoploss(
         row = {
             'ticker': symbol,
             'tstmt': ticker_stmt,
-            'stmt': stmt,
+            'st': st,
+            'mt': mt,
             'perf': round(cumul_returns_pct[-1], 3),
             'excess': round(cumul_excess[-1], 3),
             'score': round(grit[-1] * csr[-1] * sqn[-1], 1),
@@ -928,7 +930,8 @@ def init_fc_signal_stoploss(
     #     perf=perf,
     #     best_rar=best_rar
     # )
-    return high_score, perf, row, best_rar
+    # return high_score, perf, row, best_rar
+    return high_score, pd.DataFrame(stats).sort_values(by='risk_adjusted_returns').dropna()
 
 
 def get_position_size(

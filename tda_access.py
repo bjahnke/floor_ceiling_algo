@@ -30,6 +30,7 @@ OrderStatus = tda.client.Client.Order.Status
 
 _ACCOUNT_ID = credentials.ACCOUNT_ID
 
+
 def parse_orders(orders: t.List[t.Dict]) -> t.Dict[int, t.Dict]:
     return {order['orderId']: order for order in orders}
 

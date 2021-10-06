@@ -1,3 +1,4 @@
+import itertools
 import typing as t
 import pandas as pd
 import back_test_utils as btu
@@ -60,8 +61,8 @@ def init_fc_data(
         arg_rel_window: int = 20,
         threshold: int = 1.5,  #
         st_dev_window: int = 63,  #
-        st_list: range = range(10, 101, 10),  #
-        mt_list: range = range(160, 201, 20),  #
+        st_list: t.Union[range, int] = range(10, 101, 10),
+        mt_list: t.Union[range, int] = range(160, 201, 20),
         round_lot: int = 1,
         constant_risk: float = 0.25 / 100,
         constant_weight: float = 3 / 100,
@@ -117,19 +118,24 @@ def init_fc_data(
         st_dev_window=st_dev_window
     )
     # price_data['regime_change'] = 0
-    price_data = btu.init_fc_signal_stoploss(
+
+    if isinstance(st_list, range) and isinstance(mt_list, range):
+        ma_pairs = [(st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt]
+    else:
+        ma_pairs = [(st_list, mt_list)]
+
+    price_data, stats = btu.init_fc_signal_stoploss(
         fc_data=price_data,
         symbol=base_symbol,
         base_close='b_close',
         relative_close='close',
-        st_list=st_list,
-        mt_list=mt_list,
+        ma_pairs=ma_pairs,
         transaction_cost=transaction_cost,
         percentile=percentile,
         min_periods=min_periods,
         window=window,
         limit=limit,
-    )[0]
+    )
     if price_data is None:
         raise FcLosesToBuyHoldError(f'{base_symbol} Floor/Ceiling does not beat buy and hold')
 
@@ -163,7 +169,7 @@ def init_fc_data(
 
     # price_data[['close', 'b_close', 'signal', 'stop_loss']].plot()
 
-    return price_data
+    return price_data, stats
 
 
 def create_relative_data(

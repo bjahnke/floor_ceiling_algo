@@ -104,7 +104,7 @@ def fc_scan_symbol(
     #     freq_range=freq_range
     # )
 
-    price_data = fc_data_gen.init_fc_data(
+    price_data, stats = fc_data_gen.init_fc_data(
         base_symbol=symbol,
         price_data=price_data,
         equity=account_info.equity
@@ -289,6 +289,7 @@ def regime_scan(
     cumulative_absolute_returns = price_data.signals.cumulative_returns()[-1]
 
     position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
+
     return {
         'signal': price_data.signal[-1],
         'signal_start': signal_start_data,
@@ -436,7 +437,7 @@ def get_sp500_symbols():
 def test_signal(symbol):
     # price_data = yf_price_history('ADA-USD')
     price_data = yf_price_history(symbol)
-    price_data = fc_data_gen.init_fc_data(
+    price_data, stats = fc_data_gen.init_fc_data(
         base_symbol='ADA-USD',
         price_data=price_data,
         equity=account_info.equity
@@ -466,7 +467,12 @@ def continuous_scan(job: t.Callable, run_at_time: str = '01:00'):
 if __name__ == '__main__':
     main(
         symbols=['AAPL'],
-        fetch_price_history=yf_price_history
+        fetch_price_history=yf_price_history,
+        scan_out_info=ScanOutInfo(
+            _out_dir=r'C:\Users\bjahn\OneDrive\algo_data\csv',
+            _report_name='scan_out_main.xlsx',
+            _price_data_name='price_data_main.csv'
+        )
     )
     print('done')
 
