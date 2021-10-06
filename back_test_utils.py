@@ -931,7 +931,10 @@ def init_fc_signal_stoploss(
     #     best_rar=best_rar
     # )
     # return high_score, perf, row, best_rar
-    return high_score, pd.DataFrame(stats).sort_values(by='risk_adjusted_returns').dropna()
+    return (
+        high_score,
+        pd.DataFrame(stats).sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
+    )
 
 
 def get_position_size(

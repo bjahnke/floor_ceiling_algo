@@ -1,7 +1,5 @@
 from account_manager import SymbolData, AccountManager
 from scanner import yf_price_history
-import pickle
-import typing as t
 
 
 def main():
