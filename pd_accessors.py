@@ -283,3 +283,20 @@ class UpdateCheck:
         ):
             ready = (datetime.now() - self._data.index[-1]) > data_freq
         return ready
+
+
+@pd.api.extensions.register_series_accessor('scan_data')
+class ScanData(DfAccessorBase):
+    mandatory_cols = [
+        'symbol',
+        'st',
+        'mt'
+    ]
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__(df)
+
+    def by_symbol(self, symbol: str):
+        return self._obj[self._obj.symbol == symbol]
+
+

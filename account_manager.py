@@ -47,6 +47,8 @@ class SymbolData:
         self,
         base_symbol: str,
         fetch_data_function: t.Callable,
+        short_ma: int,
+        mid_ma: int,
         bench_symbol: t.Union[str, None] = None,
         brokerage_client=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
@@ -62,7 +64,8 @@ class SymbolData:
         self._bar_freq = None
         self.MARKET = market_type
         self._ENTER_ON_FRESH_SIGNAL = enter_on_fresh_signal
-        self._fc_kwargs = dict()
+        self._short_ma = short_ma
+        self._mid_ma = mid_ma
 
     @property
     def name(self):
@@ -80,13 +83,14 @@ class SymbolData:
         new_data = yf_price_history(symbol=self._name)
         if self._bench_symbol is not None:
             self._bench_data = yf_price_history(symbol=self._bench_symbol)
-
+        equity = tda_access.LocalClient.account_info().equity
         try:
             analyzed_data, stats = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
                 price_data=new_data,
-                equity=tda_access.LocalClient.account_info().equity,
-                **self._fc_kwargs
+                equity=equity,
+                st_list=self._short_ma,
+                mt_list=self._mid_ma,
                 # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
             )
         except:
@@ -96,15 +100,6 @@ class SymbolData:
                 quantity=0
             )
         else:
-            if self._fc_kwargs.get('st_list', None) is None:
-                try:
-                    self._fc_kwargs = {
-                        'st_list': stats.st.iloc[-1],
-                        'mt_list': stats.mt.iloc[-1]
-                    }
-                except IndexError:
-                    print('out of bounds')
-                    raise
             # current bar is the last closed bar which is prior to the current bar
             current_bar = analyzed_data.iloc[-2]
             current_signal = Side(current_bar.signal)
