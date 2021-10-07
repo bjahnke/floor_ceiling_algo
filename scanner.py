@@ -147,6 +147,8 @@ def fc_scan_symbol(
         rebase_close_col='close',
         stock_close_col='b_close'
     )
+    scan_result['st'] = stats.st.iloc[-1]
+    scan_result['mt'] = stats.mt.iloc[-1]
     scan_result['symbol'] = symbol
     scan_result['up_to_date'] = price_data.index[-1]
 
@@ -248,11 +250,13 @@ def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
         'symbol',
         'signal_start',
         'signal',
+        'st',
+        'mt',
         'cum_absolute_returns',
         'score',
         'close',
         'position_size',
-        'stop_loss_base'
+        'stop_loss_base',
     ]]
     # Sort columns by regime change date
     market_regime.sort_values(
@@ -331,7 +335,6 @@ def main(
         scan_out['trade_risk'] = (
             (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         )
-        scan_out['trades'] = len(scan_out.signals.slices())
         all_price_data.to_csv(scan_out_info.data_fp)
         scan_results_to_excel(scan_out, scan_out_info.report_fp)
 
