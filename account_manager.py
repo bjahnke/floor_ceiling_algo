@@ -83,12 +83,11 @@ class SymbolData:
         new_data = yf_price_history(symbol=self._name)
         if self._bench_symbol is not None:
             self._bench_data = yf_price_history(symbol=self._bench_symbol)
-        equity = tda_access.LocalClient.account_info().equity
         try:
             analyzed_data, stats = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
                 price_data=new_data,
-                equity=equity,
+                equity=None,
                 st_list=self._short_ma,
                 mt_list=self._mid_ma,
                 # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo

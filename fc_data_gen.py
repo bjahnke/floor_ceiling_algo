@@ -52,7 +52,7 @@ def merge_reshape(price_data_prefix: str, price_data: pd.DataFrame, other_data: 
 def init_fc_data(
         base_symbol: str,
         price_data: pd.DataFrame,
-        equity: float,
+        equity: t.Union[float, None],
         transaction_cost: t.Optional[float] = 0,
         percentile: float = 0.05,
         min_periods: int = 50,

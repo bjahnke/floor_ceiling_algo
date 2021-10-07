@@ -1,4 +1,4 @@
-from typing import List, Tuple
+from typing import List, Tuple, Union
 
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -939,11 +939,11 @@ def init_fc_signal_stoploss(
 
 def get_position_size(
     data: pd.DataFrame,
-    capital: float,  # K
     constant_risk: float,
     constant_weight: float,
     stop_loss_col: str,
     round_lot: int,
+    capital: Union[float, None] = None  # K
 ) -> pd.DataFrame:
     """
     :param round_lot:
