@@ -27,6 +27,7 @@ account_info = tda_access.LocalClient.account_info()
 @dataclass
 class ScanOutInfo:
     _out_dir: str
+    _png_dir: str
     _report_name: str
     _price_data_name: str
 
@@ -42,6 +43,9 @@ class ScanOutInfo:
     @property
     def data_fp(self):
         return fr'{self._out_dir}\{self._price_data_name}'
+
+    def png_fp(self, file_name):
+        return fr'{self._png_dir}\{file_name}'
 
 
 @dataclass
@@ -84,9 +88,9 @@ all_price_data: t.Union[pd.DataFrame, None] = None
 def fc_scan_symbol(
         symbol: str,
         price_data: pd.DataFrame,
+        scan_out_info: ScanOutInfo,
         bench_data: pd.DataFrame = None,
         freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
-        scan_output_loc: str = './scan_out'
 ):
     """helper, scans one symbol, outputs data to files, returns scan results"""
 
@@ -131,11 +135,7 @@ def fc_scan_symbol(
         rg='regime_floorceiling',
         bo=200
     )
-    # plt.show()
-    Path(scan_output_loc).mkdir(parents=True, exist_ok=True)
-    out_name = f'{scan_output_loc}/{symbol}'
-    # price_data.to_csv(f'{out_name}.csv')
-    plt.savefig(f'{out_name}.png', bbox_inches='tight')
+    plt.savefig(scan_out_info.png_fp(f'{symbol}.png'), bbox_inches='tight')
     # except tda_access.EmptyDataError:
     # except tda_access.TickerNotFoundError:
     # except NoSwingsError as err:
@@ -158,9 +158,10 @@ def fc_scan_symbol(
 def fc_scan_all(
         symbols: t.List[str],
         fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
+        scan_out_info: ScanOutInfo,
         freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
         bench_symbol: str = None,
-        scan_output_loc: str = r'.\scan_out',
+
         close_range: Range = Range(),
         volume_range: Range = Range(),
 ) -> t.List[t.Dict]:
@@ -199,7 +200,8 @@ def fc_scan_all(
                 symbol=symbol,
                 price_data=data,
                 bench_data=bench_data,
-                freq_range=freq_range
+                freq_range=freq_range,
+                scan_out_info=scan_out_info
             )
 
             # TODO turn into class attribute when scanner becomes class
@@ -346,6 +348,7 @@ def main(
             fetch_price_history=fetch_price_history,
             close_range=close_range,
             volume_range=volume_range,
+            scan_out_info=scan_out_info
         )
     except:
         # output existing results if any uncaught exception occurs
@@ -358,6 +361,19 @@ def main(
     # reset globals upon completion so continuous scanner doesn't include prior runs in output data
     all_price_data = None
     raw_scan_results = []
+    print(f'No candles: {failed.no_candles}')
+    print(f'No data: {failed.empty_data}')
+    print(f'No swings: {failed.no_swings}')
+    print(f'No ticker: {failed.ticker_not_found}')
+    print(f'No high score: {failed.no_high_score}')
+    print(f'Str nan in price: {failed.str_nan_in_price}')
+    failed.no_candles = set()
+    failed.empty_data = set()
+    failed.no_swings = set()
+    failed.ticker_not_found = set()
+    failed.no_high_score = set()
+    failed.str_nan_in_price = set()
+
     print('done.')
 
 
@@ -469,12 +485,24 @@ def continuous_scan(job: t.Callable, run_at_time: str = '01:00'):
 
 if __name__ == '__main__':
     main(
-        symbols=['AAPL'],
-        fetch_price_history=yf_price_history,
+        symbols=[
+                'IDXX',
+                'RDM',
+                'EW',
+                'WAT',
+                'SHW',
+                'EXR',
+                'ABMD',
+                'MSCI'
+            ],
+        bench=None,
+        freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30)),
+        fetch_price_history=tda_access.LocalClient.price_history,
         scan_out_info=ScanOutInfo(
-            _out_dir=r'C:\Users\bjahn\OneDrive\algo_data\csv',
-            _report_name='scan_out_main.xlsx',
-            _price_data_name='price_data_main.csv'
+            _out_dir=r'C:\Users\Brian\OneDrive\algo_data\csv',
+            _png_dir=r'C:\Users\Brian\OneDrive\algo_data\png',
+            _report_name='scan_out.xlsx',
+            _price_data_name='price_data.csv'
         )
     )
     print('done')
