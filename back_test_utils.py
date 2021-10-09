@@ -933,7 +933,7 @@ def init_fc_signal_stoploss(
     # return high_score, perf, row, best_rar
     return (
         high_score,
-        pd.DataFrame(stats).sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
+        pd.DataFrame(stats)  # .sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
     )
 
 

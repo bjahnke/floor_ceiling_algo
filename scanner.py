@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from time import time
 import httpx
+import numpy as np
 import requests
 from matplotlib import pyplot as plt
 import back_test_utils
@@ -147,8 +148,14 @@ def fc_scan_symbol(
         rebase_close_col='close',
         stock_close_col='b_close'
     )
-    scan_result['st'] = stats.st.iloc[-1]
-    scan_result['mt'] = stats.mt.iloc[-1]
+    stats = stats.sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
+    try:
+        scan_result['st'] = stats.st.iloc[-1]
+        scan_result['mt'] = stats.mt.iloc[-1]
+    except IndexError:
+        scan_result['st'] = np.NAN
+        scan_result['mt'] = np.NAN
+
     scan_result['symbol'] = symbol
     scan_result['up_to_date'] = price_data.index[-1]
 
