@@ -5,19 +5,19 @@ from scanner import yf_price_history
 import pandas as pd
 import pd_accessors
 
-daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
+daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
 
 
 def symbol_data_factory(*symbols: str) -> List[SymbolData]:
     res = []
     for symbol in symbols:
-        scan_data = daily_scan.scan_data.by_symbol(symbol)
+        scan_data: pd.DataFrame = daily_scan.scan_data.by_symbol(symbol)
         res.append(
             SymbolData(
                 symbol,
                 yf_price_history,
-                short_ma=scan_data.st,
-                mid_ma=scan_data.mt,
+                short_ma=int(scan_data.st.iloc[-1]),
+                mid_ma=int(scan_data.mt.iloc[-1]),
                 enter_on_fresh_signal=True
             )
         )

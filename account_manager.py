@@ -67,6 +67,15 @@ class SymbolData:
         self._short_ma = short_ma
         self._mid_ma = mid_ma
         self.error_log = set()
+        self._account_data = None
+
+    @property
+    def account_data(self):
+        return self._account_data
+
+    @account_data.setter
+    def account_data(self, value):
+        self._account_data = value
 
     @property
     def name(self):
@@ -88,13 +97,20 @@ class SymbolData:
             analyzed_data, stats = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
                 price_data=new_data,
-                equity=None,
+                equity=self._account_data.equity,
                 st_list=self._short_ma,
                 mt_list=self._mid_ma,
                 # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
             )
+        except ValueError:
+            raise
+        except TypeError:
+            raise
         except Exception as ex:
+            initial_error_len = len(self.error_log)
             self.error_log.add(ex)
+            if len(self.error_log) > initial_error_len:
+                print(ex)
             order_data = tda_access.OrderData(
                 name=self._name,
                 direction=Side.CLOSE,
@@ -253,6 +269,8 @@ class AccountManager:
         trade_states = init_states(self._account_info.get_symbols(), self.signal_data)
         # symbols AccountManager is actively trading
         self.managed = trade_states.managed
+        for symbol_state in self.managed:
+            symbol_state.symbol_data.account_data = self._account_info
         # symbols we have active positions in but are not being managed by AccountManager for this run-time
         self.not_managed = trade_states.not_managed
         # self.reload_meta_dfs()
