@@ -66,6 +66,7 @@ class SymbolData:
         self._ENTER_ON_FRESH_SIGNAL = enter_on_fresh_signal
         self._short_ma = short_ma
         self._mid_ma = mid_ma
+        self.error_log = set()
 
     @property
     def name(self):
@@ -92,7 +93,8 @@ class SymbolData:
                 mt_list=self._mid_ma,
                 # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
             )
-        except:
+        except Exception as ex:
+            self.error_log.add(ex)
             order_data = tda_access.OrderData(
                 name=self._name,
                 direction=Side.CLOSE,
@@ -167,7 +169,10 @@ class SymbolManager:
 
     def update_trade_state(self):
         """update trade state"""
-        self.trade_state = self._STATE_LOOKUP[self.trade_state]()
+        initial_trade_state = self.trade_state
+        self.trade_state = self._STATE_LOOKUP[initial_trade_state]()
+        if self.trade_state != initial_trade_state:
+            print(f'{self.symbol_data.name}: {initial_trade_state} -> {self.trade_state}')
 
     def _init_trade_state(self) -> SymbolState:
         """initialize current trade state of this symbol"""
