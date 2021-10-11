@@ -238,7 +238,7 @@ class SymbolManager:
             # must wait for open order to fill before setting stop,
             # otherwise it will cancel the initial order
             self.stop_order_id = tda_access.LocalClient.place_order_spec(
-                self._current_signal.close_order_spec
+                self._current_signal.stop_order_spec
             )
             new_trade_state = SymbolState.FILLED
         elif self._current_signal.status == OrderStatus.REJECTED:
