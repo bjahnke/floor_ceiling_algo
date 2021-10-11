@@ -285,7 +285,7 @@ class UpdateCheck:
         return ready
 
 
-@pd.api.extensions.register_series_accessor('scan_data')
+@pd.api.extensions.register_dataframe_accessor('scan_data')
 class ScanData(DfAccessorBase):
     mandatory_cols = [
         'symbol',

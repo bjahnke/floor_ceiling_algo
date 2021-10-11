@@ -17,7 +17,7 @@ def symbol_data_factory(*symbols: str) -> List[SymbolData]:
                 symbol,
                 yf_price_history,
                 short_ma=scan_data.st,
-                mid_ma=scan_data.ma,
+                mid_ma=scan_data.mt,
                 enter_on_fresh_signal=True
             )
         )
@@ -31,13 +31,28 @@ def main():
         account_manager = AccountManager(
             *symbol_data_factory(*[
                 'IDXX',
-                'RDM',
+                'RMD',
+                'MSCI',
                 'EW',
-                'WAT',
-                'SHW',
+                'ZTS',
+                'TTWO',
+                'XYL',
                 'EXR',
-                'ABMD',
-                'MSCI'
+                'PSX',
+                'WAT',
+                'DVA',
+                'SHW',
+                'UHS',
+                'HCA',
+                'AON',
+                'ADM',
+                'KEYS',
+                'ULTA',
+                'NEE',
+                'WLTW',
+                'CERN',
+                'COG',
+                'ORCL',
             ])
         )
     account_manager.run_manager()
