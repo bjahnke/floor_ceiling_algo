@@ -5,7 +5,7 @@ from scanner import yf_price_history
 import pandas as pd
 import pd_accessors
 
-daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out_hp.xlsx')
+daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
 
 
 def symbol_data_factory(*symbols: str) -> List[SymbolData]:
@@ -24,41 +24,19 @@ def symbol_data_factory(*symbols: str) -> List[SymbolData]:
     return res
 
 
-def main():
+def main(min_score: float):
     try:
         account_manager = AccountManager.load_from_pickle()
     except FileNotFoundError:
+        symbol_watchlist: pd.Series = daily_scan.symbol[daily_scan.score >= min_score]
         account_manager = AccountManager(
-            *symbol_data_factory(*[
-                'IDXX',
-                'RMD',
-                'MSCI',
-                'EW',
-                'ZTS',
-                'TTWO',
-                'XYL',
-                'EXR',
-                'PSX',
-                'WAT',
-                'DVA',
-                'SHW',
-                'UHS',
-                'HCA',
-                'AON',
-                'ADM',
-                'KEYS',
-                'ULTA',
-                'NEE',
-                'WLTW',
-                'CERN',
-                'COG',
-                'ORCL',
-            ])
+            *symbol_data_factory(*symbol_watchlist.to_list())
         )
     account_manager.run_manager()
 
 
 if __name__ == '__main__':
-    main()
+    print('start')
+    main(min_score=3)
 
 

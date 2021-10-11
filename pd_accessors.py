@@ -299,4 +299,6 @@ class ScanData(DfAccessorBase):
     def by_symbol(self, symbol: str):
         return self._obj[self._obj.symbol == symbol]
 
+    def get_symbols_score(self):
+        pass
 
