@@ -1,5 +1,6 @@
 from typing import List
 
+import tda_access
 from account_manager import SymbolData, AccountManager
 from scanner import yf_price_history
 import pandas as pd

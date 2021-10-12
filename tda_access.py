@@ -262,17 +262,49 @@ class _LocalClientMeta(type):
         return cls._cached_orders
 
     def orders_by_id(cls, status: OrderStatus = None, cached=False):
+        """returns orders where key is the order id"""
         return parse_orders(cls.orders(status=status, cached=cached))
 
     def get_order_data(cls, order_id, cached=False) -> OrderData:
         """TODO call in debugger to get location of symbol name"""
         order = cls.orders_by_id(cached=cached)[order_id]
         return OrderData(
+            name=order['orderLegCollection'][0]['instrument']['symbol'],
             direction=Side(order['orderLegCollection'][0]['instruction']),
             quantity=order['filledQuantity'],
             stop_loss=None,
             status=OrderStatus(order['status'])
         )
+
+    def get_queued_stop_order(
+            cls, symbol: str
+    ) -> t.Union[t.Tuple[OrderData, int], t.Tuple[None, None]]:
+        """"""
+        orders = cls.orders()
+        stop_order_data = None
+        stop_order_id = None
+        for order in orders:
+            order_leg_collection = order['orderLegCollection'][0]
+            if (
+                order_leg_collection['instrument']['symbol'] == symbol and
+                order['orderType'] == 'STOP' and
+                order_leg_collection['positionEffect'] == 'CLOSING' and
+                order['status'] == 'QUEUED'
+            ):
+                # direction should match the OPEN position direction
+                direction = Side.LONG
+                if order_leg_collection['instruction'] == 'BUY_TO_COVER':
+                    direction = Side.SHORT
+
+                stop_order_data = OrderData(
+                    name=symbol,
+                    direction=direction,
+                    quantity=order['quantity'],
+                    stop_loss=order['stopPrice']
+                )
+                stop_order_id = order['orderId']
+                break
+        return stop_order_data, stop_order_id
 
     def place_order_spec(cls, order_spec) -> t.Tuple[int, str]:
         """place order with tda-api order spec, return order id"""

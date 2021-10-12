@@ -66,7 +66,7 @@ class SymbolData:
         self._ENTER_ON_FRESH_SIGNAL = enter_on_fresh_signal
         self._short_ma = short_ma
         self._mid_ma = mid_ma
-        self.error_log = set()
+        self.error_log = []
         self._account_data = None
 
     @property
@@ -107,10 +107,9 @@ class SymbolData:
         except TypeError:
             raise
         except Exception as ex:
-            initial_error_len = len(self.error_log)
-            self.error_log.add(ex)
-            if len(self.error_log) > initial_error_len:
-                print(ex)
+            if str(ex) not in self.error_log:
+                print(str(ex))
+                self.error_log.append(str(ex))
             order_data = tda_access.OrderData(
                 name=self._name,
                 direction=Side.CLOSE,
@@ -194,7 +193,14 @@ class SymbolManager:
         """initialize current trade state of this symbol"""
         # TODO how unlikely is it that order is pending during initialization?
         state = SymbolState.REST
-        if self.account_data.positions.get(self.symbol_data.name, None) is not None:
+
+        # if there is an open position, it has passed the rest state already
+        if (position_data := self.account_data.positions.get(self.symbol_data.name, None)) is not None:
+            # order_data = tda_access.OrderData(
+            #     name=self.symbol_data.name,
+            #     direction=position_data.side,
+            #     quantity=position_data.qty,
+            # )
             state = SymbolState.FILLED
         return state
 
@@ -234,14 +240,15 @@ class SymbolManager:
         resolve the status of the current order
         set stop loss if status is filled
         """
-        if self._current_signal.status == OrderStatus.FILLED:
+        order_data = tda_access.LocalClient.get_order_data(self.order_id)
+        if order_data.status == OrderStatus.FILLED:
             # must wait for open order to fill before setting stop,
             # otherwise it will cancel the initial order
             self.stop_order_id = tda_access.LocalClient.place_order_spec(
                 self._current_signal.stop_order_spec
             )
             new_trade_state = SymbolState.FILLED
-        elif self._current_signal.status == OrderStatus.REJECTED:
+        elif order_data.status == OrderStatus.REJECTED:
             new_trade_state = SymbolState.ERROR
         else:
             new_trade_state = SymbolState.ORDER_PENDING
