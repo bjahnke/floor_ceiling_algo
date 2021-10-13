@@ -126,7 +126,7 @@ class OrderData:
 
     @property
     def stop_order_spec(self) -> t.Union[OrderBuilder, None]:
-        return self._get_order_spec(OrderData._OPEN_ORDER)
+        return self._get_order_spec(OrderData._OPEN_STOP)
 
     def _get_order_spec(self, order_dict: ORDER_DICT) -> t.Union[OrderBuilder, None]:
         # sourcery skip: lift-return-into-if
