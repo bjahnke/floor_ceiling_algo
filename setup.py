@@ -11,14 +11,15 @@ setup(
     description='',
     install_requires=[
         'dotmap',
+        'numpy',
         'matplotlib',
         'pandas',
-        'numpy',
         'selenium',
         'scipy',
         'httpx',
         'tda-api',
         'yfinance',
         'schedule',
+        'w3rw @ git+https://github.com/teleprint-me/w3rw.git#egg=w3rw'
     ]
 )

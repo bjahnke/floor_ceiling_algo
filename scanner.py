@@ -344,6 +344,7 @@ def main(
         scan_out['trade_risk'] = (
             (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         )
+        scan_out = scan_out.sort_values(by='score', ascending=False)
         all_price_data.to_csv(scan_out_info.data_fp)
         scan_results_to_excel(scan_out, scan_out_info.report_fp)
 

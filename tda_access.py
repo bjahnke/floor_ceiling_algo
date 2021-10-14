@@ -8,7 +8,7 @@ TODO order history?
 from __future__ import annotations
 import datetime
 
-from tda.orders.common import OrderType
+from tda.orders.common import OrderType, Duration
 from tda.orders.generic import OrderBuilder
 
 import credentials
@@ -96,11 +96,13 @@ class OrderData:
             toe.equity_sell_market(sym, qty)
             .set_order_type(OrderType.STOP)
             .set_stop_price(stop_price)
+            .set_duration(Duration.GOOD_TILL_CANCEL)
         ),
         Side.SHORT: lambda sym, qty, stop_price: (
             toe.equity_buy_to_cover_market(sym, qty)
             .set_order_type(OrderType.STOP)
             .set_stop_price(stop_price)
+            .set_duration(Duration.GOOD_TILL_CANCEL)
         ),
     }
 
