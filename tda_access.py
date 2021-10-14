@@ -8,6 +8,8 @@ TODO order history?
 from __future__ import annotations
 import datetime
 
+import authlib
+from authlib.integrations.base_client import OAuthError
 from tda.orders.common import OrderType, Duration
 from tda.orders.generic import OrderBuilder
 
@@ -379,7 +381,7 @@ class LocalClient(metaclass=_LocalClientMeta):
         :return:
         """
         # get historical data, store as dataframe, convert datetime (ms) to y-m-d-etc
-        while True:
+        try:
             resp = cls.TDA_CLIENT.get_price_history(
                 symbol,
                 period_type=freq_range.range.period.type,
@@ -389,14 +391,16 @@ class LocalClient(metaclass=_LocalClientMeta):
                 start_datetime=freq_range.range.start,
                 end_datetime=freq_range.range.end,
             )
+        except OAuthError:
+            raise EmptyDataError
+        else:
             history = resp.json()
-            if history.get('candles', None) is not None:
-                break
-            elif history['error'] == 'Not Found':
-                print(f'td api could not find symbol {symbol}')
-                raise TickerNotFoundError(f'td api could not find symbol {symbol}')
-            else:
-                raise EmptyDataError(f'No data received for symbol {symbol}')
+            if history.get('candles', None) is None:
+                if history['error'] == 'Not Found':
+                    print(f'td api could not find symbol {symbol}')
+                    raise TickerNotFoundError(f'td api could not find symbol {symbol}')
+                else:
+                    raise EmptyDataError(f'No data received for symbol {symbol}')
 
         df = pd.DataFrame(history['candles'])
 

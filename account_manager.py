@@ -2,6 +2,7 @@ from __future__ import annotations
 import pickle
 from datetime import datetime, timedelta
 from enum import Enum, auto
+from time import perf_counter
 
 import pandas as pd
 from copy import copy
@@ -69,6 +70,7 @@ class SymbolData:
         self._mid_ma = mid_ma
         self.error_log = []
         self._account_data = None
+        self._cached_data = None
 
     @property
     def account_data(self):
@@ -92,10 +94,16 @@ class SymbolData:
 
     def get_current_signal(self) -> tda_access.OrderData:
         # new_data = yf_price_history(symbol=self._name)
-        new_data = tda_access.LocalClient.price_history(
-            symbol=self._name,
-            freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
-        )
+        try:
+            new_data = tda_access.LocalClient.price_history(
+                symbol=self._name,
+                freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
+            )
+            self._cached_data = new_data
+            # print(f'{self._name}^ {perf_counter()}')
+        except tda_access.EmptyDataError:
+            new_data = self._cached_data
+
         if self._bench_symbol is not None:
             # TODO update to use tda price history
             self._bench_data = yf_price_history(symbol=self._bench_symbol)
