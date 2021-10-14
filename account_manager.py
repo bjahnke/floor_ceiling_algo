@@ -1,5 +1,6 @@
 from __future__ import annotations
 import pickle
+from datetime import datetime, timedelta
 from enum import Enum, auto
 
 import pandas as pd
@@ -90,8 +91,13 @@ class SymbolData:
         return self._data.update_check.is_ready(self.MARKET, self._bar_freq)
 
     def get_current_signal(self) -> tda_access.OrderData:
-        new_data = yf_price_history(symbol=self._name)
+        # new_data = yf_price_history(symbol=self._name)
+        new_data = tda_access.LocalClient.price_history(
+            symbol=self._name,
+            freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
+        )
         if self._bench_symbol is not None:
+            # TODO update to use tda price history
             self._bench_data = yf_price_history(symbol=self._bench_symbol)
         try:
             analyzed_data, stats = fc_data_gen.init_fc_data(
@@ -116,8 +122,11 @@ class SymbolData:
                 quantity=0
             )
         else:
-            # current bar is the last closed bar which is prior to the current bar
-            current_bar = analyzed_data.iloc[-2]
+            # (for yfinance) current bar is the last closed bar which is prior to the current bar
+            # current_bar = analyzed_data.iloc[-2]
+            # (for tda-price history) current bar is the last bar
+            current_bar = analyzed_data.iloc[-1]
+
             current_signal = Side(current_bar.signal)
             order_data = tda_access.OrderData(
                 name=self._name,
@@ -129,7 +138,10 @@ class SymbolData:
             # TODO this code should probably be in SymbolManager somehow
             #   possibly need to merge the 2 classes
             if self._ENTER_ON_FRESH_SIGNAL:
-                prior_bar_signal = Side(analyzed_data.iloc[-3].signal)
+                # yfinance prev bar:
+                # prior_bar_signal = Side(analyzed_data.iloc[-3].signal)
+                # tda prev bar:
+                prior_bar_signal = Side(analyzed_data.iloc[-2].signal)
                 if Side.CLOSE != current_signal == prior_bar_signal:
                     order_data = tda_access.OrderData(
                         name=self._name,
