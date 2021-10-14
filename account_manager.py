@@ -215,6 +215,8 @@ class SymbolManager:
             new_trade_state = SymbolState.REST
         elif current_signal.direction != position.side:
             self.order_id, order_status = tda_access.LocalClient.place_order_spec(position.full_close())
+            # TODO retrieve stop order id from TDA order log if hard reset occurs
+            tda_access.LocalClient.cancel_order(self.stop_order_id)
             self.order_id = None
             self.stop_order_id = None
             self._current_signal = None

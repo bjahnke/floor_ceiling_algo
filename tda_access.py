@@ -359,6 +359,9 @@ class _LocalClientMeta(type):
         market_end = datetime.datetime.strptime(market_end, '%Y-%m-%dT%H:%M:%S')
         return datetime.datetime.now() - market_end <= time_ago
 
+    def cancel_order(cls, order_id: int):
+        cls.TDA_CLIENT.cancel_order(order_id=order_id, account_id=_ACCOUNT_ID)
+
 
 # create td client
 class LocalClient(metaclass=_LocalClientMeta):
