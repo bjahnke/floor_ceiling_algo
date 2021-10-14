@@ -122,7 +122,8 @@ class SymbolData:
             order_data = tda_access.OrderData(
                 name=self._name,
                 direction=current_signal,
-                quantity=current_bar.eqty_risk_lot * current_bar.signal,
+                # quantity=current_bar.eqty_risk_lot * current_bar.signal,
+                quantity=1,
                 stop_loss=current_bar.stop_loss_base
             )
             # TODO this code should probably be in SymbolManager somehow
@@ -255,6 +256,10 @@ class SymbolManager:
         return new_trade_state
 
     def error(self) -> SymbolState:
+        """
+        TODO: wait until current signal is None, then set state to REST
+        """
+        
         return SymbolState.ERROR
 
 
