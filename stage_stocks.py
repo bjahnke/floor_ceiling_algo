@@ -6,7 +6,7 @@ from scanner import yf_price_history
 import pandas as pd
 import pd_accessors
 
-daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
+daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
 
 
 def symbol_data_factory(*symbols: str) -> List[SymbolData]:
@@ -38,6 +38,6 @@ def main(min_score: float):
 
 if __name__ == '__main__':
     print('start')
-    main(min_score=3)
+    main(min_score=2.5)
 
 

@@ -121,7 +121,7 @@ class OrderData:
             self.quantity = 0
 
     @classmethod
-    def no_signal(cls):
+    def no_signal(cls, side: Side = Side.CLOSE):
         return cls(
             name='',
             direction=Side.CLOSE,
@@ -323,6 +323,7 @@ class _LocalClientMeta(type):
         cls.TDA_CLIENT.place_order(account_id=_ACCOUNT_ID, order_spec=order_spec)
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
+
 
     def init_listed_stream(cls, output_file_path: str):
         """

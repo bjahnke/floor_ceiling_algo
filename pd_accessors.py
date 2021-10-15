@@ -5,7 +5,7 @@ import typing as t
 
 from pandas import Timedelta
 
-from strategy_utils import Side
+from strategy_utils import Side, SignalStatus
 import trade_stats
 import tda_access
 from datetime import datetime, timedelta
@@ -225,6 +225,17 @@ class Signals(DfAccessorBase):
             res = trade_stats.cum_return_percent(daily_log_returns)
 
         return res
+
+    @property
+    def status(self) -> SignalStatus:
+        """gives the current signal status"""
+        return SignalStatus((
+            Side(self._obj.signals.current),
+            Side(self._obj.signals.prev)
+        ))
+
+
+
 
 
 @pd.api.extensions.register_dataframe_accessor('stats')

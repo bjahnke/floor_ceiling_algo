@@ -3,7 +3,7 @@ utilities for code development of back test platform and
 trading modules
 """
 
-from enum import Enum
+from enum import Enum, auto
 
 import numpy as np
 import pandas as pd
@@ -31,4 +31,29 @@ class Side(Enum):
                 res = super()._missing_(value)
         return res
 
+
+class SignalStatus(Enum):
+    NEW_LONG = auto()
+    NEW_SHORT = auto()
+    NEW_CLOSE = auto()
+    LONG = auto()
+    SHORT = auto()
+    CLOSE = auto()
+    # NEW_LONG_SHORT = auto()  # is it possible skip close?
+    # NEW_SHORT_LONG = auto()
+
+    @classmethod
+    def _missing_(cls, value):
+        signal_status_selector = {
+            (Side.CLOSE, Side.LONG): SignalStatus.NEW_LONG,
+            (Side.CLOSE, Side.SHORT): SignalStatus.NEW_SHORT,
+            (Side.LONG, Side.CLOSE): SignalStatus.NEW_CLOSE,
+            (Side.SHORT, Side.CLOSE): SignalStatus.NEW_CLOSE,
+            (Side.CLOSE, Side.CLOSE): SignalStatus.CLOSE,
+            (Side.LONG, Side.LONG): SignalStatus.LONG,
+            (Side.SHORT, Side.SHORT): SignalStatus.SHORT,
+        }
+        if (res := signal_status_selector.get(value, None)) is None:
+            res = super()._missing_(value)
+        return res
 

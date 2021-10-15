@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from time import perf_counter
 
+import httpx
 from matplotlib import pyplot as plt
 
 import back_test_utils
@@ -20,6 +21,7 @@ import typing as t
 import tdargs
 from collections import namedtuple
 
+from strategy_utils import SignalStatus
 from tda_access import Side
 from scanner import yf_price_history
 
@@ -46,6 +48,7 @@ class SymbolData:
     _bench_data: t.Union[None, pd.DataFrame]
     _update_price_history: t.Callable[[], pd.DataFrame]
     _bar_freq: t.Union[None, Timedelta]
+    _valid_signals: t.List[SignalStatus]
 
     def __init__(
         self,
@@ -73,6 +76,25 @@ class SymbolData:
         self.error_log = []
         self._account_data = None
         self._cached_data = None
+        self._valid_signals = self._init_valid_signals()
+
+    def _init_valid_signals(self):
+        valid_signals = [
+            SignalStatus.SHORT,
+            SignalStatus.LONG,
+            SignalStatus.NEW_SHORT,
+            SignalStatus.NEW_LONG,
+            SignalStatus.NEW_CLOSE,
+            SignalStatus.CLOSE
+        ]
+        if self._ENTER_ON_FRESH_SIGNAL:
+            valid_signals = [
+                SignalStatus.NEW_SHORT,
+                SignalStatus.NEW_LONG,
+                SignalStatus.NEW_CLOSE,
+                SignalStatus.CLOSE
+            ]
+        return valid_signals
 
     @property
     def account_data(self):
@@ -137,47 +159,36 @@ class SymbolData:
             order_data = tda_access.OrderData.no_signal()
         else:
             self._cached_data = analyzed_data
-            # (for yfinance) current bar is the last closed bar which is prior to the current bar
-            # current_bar = analyzed_data.iloc[-2]
-            # (for tda-price history) current bar is the last bar
-            current_bar = analyzed_data.iloc[-1]
-            current_signal = Side(current_bar.signal)
-            order_data = tda_access.OrderData(
-                name=self._name,
-                direction=current_signal,
-                # quantity=current_bar.eqty_risk_lot * current_bar.signal,
-                quantity=1,
-                stop_loss=current_bar.stop_loss_base
-            )
-            # TODO this code should probably be in SymbolManager somehow
-            #   possibly need to merge the 2 classes
-            if self._ENTER_ON_FRESH_SIGNAL:
-                # yfinance prev bar:
-                # prior_bar_signal = Side(analyzed_data.iloc[-3].signal)
-                # tda prev bar:
-                prior_bar_signal = Side(analyzed_data.iloc[-2].signal)
-                if Side.CLOSE != current_signal == prior_bar_signal:
-                    order_data = tda_access.OrderData.no_signal()
+            if analyzed_data.signals.status in self._valid_signals:
+                order_data = tda_access.OrderData(
+                    name=self._name,
+                    direction=Side(analyzed_data.signals.current),
+                    # quantity=current_bar.eqty_risk_lot * current_bar.signal,
+                    quantity=1,
+                    stop_loss=analyzed_data.stop_loss_base.iloc[-1]
+                )
+            else:
+                order_data = tda_access.OrderData.no_signal()
 
-            back_test_utils.graph_regime_fc(
-                ticker=self._name,
-                df=analyzed_data,
-                y='close',
-                th=1.5,
-                sl='sw_low',
-                sh='sw_high',
-                clg='ceiling',
-                flr='floor',
-                st=analyzed_data['st_ma'],
-                mt=analyzed_data['mt_ma'],
-                bs='regime_change',
-                rg='regime_floorceiling',
-                bo=200
-            )
-            try:
-                plt.savefig(rf'C:\Users\temp\OneDrive\algo_data\png\live_trade\{self._name}.png', bbox_inches='tight')
-            except Exception as e:
-                print(e)
+            # back_test_utils.graph_regime_fc(
+            #     ticker=self._name,
+            #     df=analyzed_data,
+            #     y='close',
+            #     th=1.5,
+            #     sl='sw_low',
+            #     sh='sw_high',
+            #     clg='ceiling',
+            #     flr='floor',
+            #     st=analyzed_data['st_ma'],
+            #     mt=analyzed_data['mt_ma'],
+            #     bs='regime_change',
+            #     rg='regime_floorceiling',
+            #     bo=200
+            # )
+            # try:
+            #     plt.savefig(rf'C:\Users\temp\OneDrive\algo_data\png\live_trade\{self._name}.png', bbox_inches='tight')
+            # except Exception as e:
+            #     print(e)
 
         return order_data
 
@@ -247,12 +258,15 @@ class SymbolManager:
     def filled(self) -> SymbolState:
         new_trade_state = SymbolState.FILLED
         current_signal = self.symbol_data.get_current_signal()
+        new_order = current_signal.close_order_spec
+
         position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
         if position is None:
             # if no position found for this symbol,
             # stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
-        elif current_signal.direction != position.side:
+        # TODO elif new_order is not None and current_signal.direction != position.side:
+        elif new_order is not None and current_signal.direction != position.side:
             self.order_id, order_status = tda_access.LocalClient.place_order_spec(position.full_close())
             # TODO retrieve stop order id from TDA order log if hard reset occurs
             tda_access.LocalClient.cancel_order(self.stop_order_id)
@@ -338,10 +352,15 @@ class AccountManager:
                     -
         :return:
         """
+
         while True:
+            timeouts = 0
             for symbol_manager in self.managed:
-                symbol_manager.update_trade_state()
-                self.to_pickle()
+                try:
+                    symbol_manager.update_trade_state()
+                    self.to_pickle()
+                except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+                    timeouts += 1
 
     def to_pickle(self):
         with open(self.__class__.FILE_PATH, 'wb') as file_handler:
