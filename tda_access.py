@@ -120,6 +120,14 @@ class OrderData:
         if self.quantity < 0:
             self.quantity = 0
 
+    @classmethod
+    def no_signal(cls):
+        return cls(
+            name='',
+            direction=Side.CLOSE,
+            quantity=0
+        )
+
     @property
     def open_order_spec(self) -> t.Union[OrderBuilder, None]:
         return self._get_order_spec(OrderData._OPEN_ORDER)
@@ -316,11 +324,14 @@ class _LocalClientMeta(type):
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
 
-    def init_listed_stream(cls):
+    def init_listed_stream(cls, output_file_path: str):
         """
         stream price data of the given symbols every 500ms
         use this code to execute function: asyncio.run(LocalClient.initiate_stream(<enter symbols here>)
         """
+        def msg_handler(msg):
+            json.dumps(msg, indent=4)
+
         return configure_stream(
             stream_client=cls.STREAM_CLIENT,
             add_book_handler=cls.STREAM_CLIENT.add_listed_book_handler,

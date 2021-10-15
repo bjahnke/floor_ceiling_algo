@@ -46,7 +46,6 @@ class SymbolData:
     _bench_data: t.Union[None, pd.DataFrame]
     _update_price_history: t.Callable[[], pd.DataFrame]
     _bar_freq: t.Union[None, Timedelta]
-    _fc_kwargs: dict
 
     def __init__(
         self,
@@ -95,7 +94,7 @@ class SymbolData:
         """check if new bar is ready to be retrieved, prevents redundant API calls"""
         return self._data.update_check.is_ready(self.MARKET, self._bar_freq)
 
-    def get_current_signal(self) -> tda_access.OrderData:
+    def get_price_data(self):
         # new_data = yf_price_history(symbol=self._name)
         try:
             new_data = tda_access.LocalClient.price_history(
@@ -105,11 +104,21 @@ class SymbolData:
             self._cached_data = new_data
             # print(f'{self._name}^ {perf_counter()}')
         except tda_access.EmptyDataError:
-            new_data = self._cached_data
+            # new_data = self._cached_data
+            new_data = None
 
         if self._bench_symbol is not None:
             # TODO update to use tda price history
             self._bench_data = yf_price_history(symbol=self._bench_symbol)
+
+        return new_data
+
+    def get_current_signal(self) -> tda_access.OrderData:
+        # new_data = yf_price_history(symbol=self._name)
+        new_data = self.get_price_data()
+        if new_data is None:
+            return tda_access.OrderData.no_signal()
+
         try:
             analyzed_data, stats = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
@@ -119,25 +128,19 @@ class SymbolData:
                 mt_list=self._mid_ma,
                 # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
             )
-        except ValueError:
-            raise
-        except TypeError:
+        except (ValueError, TypeError):
             raise
         except Exception as ex:
             if str(ex) not in self.error_log:
                 print(str(ex))
                 self.error_log.append(str(ex))
-            order_data = tda_access.OrderData(
-                name=self._name,
-                direction=Side.CLOSE,
-                quantity=0
-            )
+            order_data = tda_access.OrderData.no_signal()
         else:
+            self._cached_data = analyzed_data
             # (for yfinance) current bar is the last closed bar which is prior to the current bar
             # current_bar = analyzed_data.iloc[-2]
             # (for tda-price history) current bar is the last bar
             current_bar = analyzed_data.iloc[-1]
-
             current_signal = Side(current_bar.signal)
             order_data = tda_access.OrderData(
                 name=self._name,
@@ -154,11 +157,7 @@ class SymbolData:
                 # tda prev bar:
                 prior_bar_signal = Side(analyzed_data.iloc[-2].signal)
                 if Side.CLOSE != current_signal == prior_bar_signal:
-                    order_data = tda_access.OrderData(
-                        name=self._name,
-                        direction=current_signal,
-                        quantity=0
-                    )
+                    order_data = tda_access.OrderData.no_signal()
 
             back_test_utils.graph_regime_fc(
                 ticker=self._name,
@@ -181,10 +180,6 @@ class SymbolData:
                 print(e)
 
         return order_data
-
-    def clear_stored_fc_args(self):
-        """"""
-        self._fc_kwargs = dict()
 
 
 class SymbolState(Enum):
@@ -264,7 +259,6 @@ class SymbolManager:
             self.order_id = None
             self.stop_order_id = None
             self._current_signal = None
-            self.symbol_data.clear_stored_fc_args()
             new_trade_state = SymbolState.REST
 
         return new_trade_state
