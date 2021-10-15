@@ -4,6 +4,9 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 from time import perf_counter
 
+from matplotlib import pyplot as plt
+
+import back_test_utils
 import pandas as pd
 from copy import copy
 
@@ -156,6 +159,27 @@ class SymbolData:
                         direction=current_signal,
                         quantity=0
                     )
+
+            back_test_utils.graph_regime_fc(
+                ticker=self._name,
+                df=analyzed_data,
+                y='close',
+                th=1.5,
+                sl='sw_low',
+                sh='sw_high',
+                clg='ceiling',
+                flr='floor',
+                st=analyzed_data['st_ma'],
+                mt=analyzed_data['mt_ma'],
+                bs='regime_change',
+                rg='regime_floorceiling',
+                bo=200
+            )
+            try:
+                plt.savefig(rf'C:\Users\temp\OneDrive\algo_data\png\live_trade\{self._name}.png', bbox_inches='tight')
+            except Exception as e:
+                print(e)
+
         return order_data
 
     def clear_stored_fc_args(self):
