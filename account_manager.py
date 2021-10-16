@@ -44,7 +44,6 @@ class Input:
 class SymbolData:
     """"""
     _name: str
-    _data: t.Union[None, pd.DataFrame]
     _bench_data: t.Union[None, pd.DataFrame]
     _update_price_history: t.Callable[[], pd.DataFrame]
     _bar_freq: t.Union[None, Timedelta]
@@ -53,23 +52,19 @@ class SymbolData:
     def __init__(
         self,
         base_symbol: str,
-        fetch_data_function: t.Callable,
         short_ma: int,
         mid_ma: int,
+        broker_client,
         bench_symbol: t.Union[str, None] = None,
-        brokerage_client=None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
-        market_type: t.Optional[tda.client.Client.Markets] = tda.client.Client.Markets.EQUITY,
         enter_on_fresh_signal=False
     ):
+        self._broker_client = broker_client
         self._name = base_symbol
         self._bench_symbol = bench_symbol
         self._freq_range = freq_range
-        self._fetch_data = fetch_data_function
-        self._data = None
         self._bench_data = None
         self._bar_freq = None
-        self.MARKET = market_type
         self._ENTER_ON_FRESH_SIGNAL = enter_on_fresh_signal
         self._short_ma = short_ma
         self._mid_ma = mid_ma
@@ -97,6 +92,10 @@ class SymbolData:
         return valid_signals
 
     @property
+    def broker_client(self):
+        return self._broker_client
+
+    @property
     def account_data(self):
         return self._account_data
 
@@ -108,18 +107,10 @@ class SymbolData:
     def name(self):
         return self._name
 
-    @property
-    def data(self):
-        return self._data
-
-    def update_ready(self):
-        """check if new bar is ready to be retrieved, prevents redundant API calls"""
-        return self._data.update_check.is_ready(self.MARKET, self._bar_freq)
-
     def get_price_data(self):
         # new_data = yf_price_history(symbol=self._name)
         try:
-            new_data = tda_access.LocalClient.price_history(
+            new_data = self._broker_client.price_history(
                 symbol=self._name,
                 freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
             )
@@ -209,8 +200,9 @@ class SymbolManager:
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
+        self._broker_client = symbol_data.broker_client
         # TODO pass in broker to symbol manager. req abstract AccountInfo param cached: bool (or **kwarg)
-        self.account_data = tda_access.LocalClient.account_info(cached=True)
+        self.account_data = self._broker_client.account_info(cached=True)
         self.trade_state = self._init_trade_state()
         self.order_id = None
         self.stop_order_id = None
@@ -260,16 +252,16 @@ class SymbolManager:
         current_signal = self.symbol_data.get_current_signal()
         new_order = current_signal.close_order_spec
 
-        position = tda_access.LocalClient.account_info().positions.get(self.symbol_data.name, None)
+        position = self._broker_client.account_info().positions.get(self.symbol_data.name, None)
         if position is None:
             # if no position found for this symbol,
             # stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
         # TODO elif new_order is not None and current_signal.direction != position.side:
         elif new_order is not None and current_signal.direction != position.side:
-            self.order_id, order_status = tda_access.LocalClient.place_order_spec(position.full_close())
+            self.order_id, order_status = self._broker_client.place_order_spec(position.full_close())
             # TODO retrieve stop order id from TDA order log if hard reset occurs
-            tda_access.LocalClient.cancel_order(self.stop_order_id)
+            self._broker_client.cancel_order(self.stop_order_id)
             self.order_id = None
             self.stop_order_id = None
             self._current_signal = None
@@ -284,7 +276,7 @@ class SymbolManager:
 
         # no order template corresponding to the current signal val means trade signal not given
         if order_spec is not None:
-            self.order_id, order_status = tda_access.LocalClient.place_order_spec(order_spec)
+            self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
             self._current_signal.status = OrderStatus(order_status)
             new_trade_state = SymbolState.ORDER_PENDING
         return new_trade_state
@@ -295,11 +287,11 @@ class SymbolManager:
         resolve the status of the current order
         set stop loss if status is filled
         """
-        order_data = tda_access.LocalClient.get_order_data(self.order_id)
+        order_data = self._broker_client.get_order_data(self.order_id)
         if order_data.status == OrderStatus.FILLED:
             # must wait for open order to fill before setting stop,
             # otherwise it will cancel the initial order
-            self.stop_order_id = tda_access.LocalClient.place_order_spec(
+            self.stop_order_id = self._broker_client.place_order_spec(
                 self._current_signal.stop_order_spec
             )
             new_trade_state = SymbolState.FILLED
@@ -328,9 +320,10 @@ class AccountManager:
         - when loading active positions from account, load MDF params and excel data
     """
 
-    def __init__(self, *signal_data: SymbolData):
+    def __init__(self, broker_client, *signal_data: SymbolData):
         # TODO abstract out LocalClient: req AbstractClass containing account_info()
-        self._account_info = tda_access.LocalClient.account_info()
+        self._broker_client = broker_client
+        self._account_info = self._broker_client.account_info()
         self.signal_data = signal_data
         trade_states = init_states(self._account_info.get_symbols(), self.signal_data)
         # symbols AccountManager is actively trading
@@ -394,11 +387,5 @@ def init_states(active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]
 
 
 if __name__ == '__main__':
-    da = SymbolData('GPRO', 'SPX', tdargs.freqs.day.range(tdargs.periods.y2))
-    current_bar_data = da.data.iloc[-1]
-    signal = current_bar_data.signal
-    stop_loss = current_bar_data.stop_loss
-    position_size = current_bar_data.eqty_risk_lot
-
     print('done.')
 

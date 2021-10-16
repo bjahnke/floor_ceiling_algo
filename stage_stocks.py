@@ -15,8 +15,8 @@ def symbol_data_factory(*symbols: str) -> List[SymbolData]:
         scan_data: pd.DataFrame = daily_scan.scan_data.by_symbol(symbol)
         res.append(
             SymbolData(
-                symbol,
-                yf_price_history,
+                base_symbol=symbol,
+                broker_client=tda_access.LocalClient,
                 short_ma=int(scan_data.st.iloc[-1]),
                 mid_ma=int(scan_data.mt.iloc[-1]),
                 enter_on_fresh_signal=True
@@ -31,6 +31,7 @@ def main(min_score: float):
     except FileNotFoundError:
         symbol_watchlist: pd.Series = daily_scan.symbol[daily_scan.score >= min_score]
         account_manager = AccountManager(
+            broker_client=tda_access.LocalClient,
             *symbol_data_factory(*symbol_watchlist.to_list())
         )
     account_manager.run_manager()
