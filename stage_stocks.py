@@ -31,7 +31,7 @@ def main(min_score: float):
     except FileNotFoundError:
         symbol_watchlist: pd.Series = daily_scan.symbol[daily_scan.score >= min_score]
         account_manager = AccountManager(
-            broker_client=tda_access.LocalClient,
+            tda_access.LocalClient,
             *symbol_data_factory(*symbol_watchlist.to_list())
         )
     account_manager.run_manager()
