@@ -202,9 +202,11 @@ class AccountInfo:
         self.equity = cur_balance['equity']
         self.liquid_funds = cur_balance['moneyMarketFund'] + cur_balance['cashBalance']
         self.buy_power = cur_balance['buyingPower']
+
+        raw_positions = self.acct_data_raw['securitiesAccount'].get('positions', dict())
         self._positions = {
             pos['instrument']['symbol']: Position(pos)
-            for pos in self.acct_data_raw['securitiesAccount']['positions']
+            for pos in raw_positions
             if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
         }
         # self._pending_orders = self._parse_order_statuses()
