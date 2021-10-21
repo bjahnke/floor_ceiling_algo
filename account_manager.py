@@ -345,15 +345,16 @@ class AccountManager:
                     -
         :return:
         """
-
+        timeouts = []
         while True:
-            timeouts = 0
             for symbol_manager in self.managed:
                 try:
                     symbol_manager.update_trade_state()
                     self.to_pickle()
-                except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
-                    timeouts += 1
+                except (httpx.ReadTimeout, httpx.ConnectTimeout, httpx.ReadError) as e:
+                    print(e)
+                    if str(e) not in timeouts:
+                        timeouts.append(e)
 
     def to_pickle(self):
         with open(self.__class__.FILE_PATH, 'wb') as file_handler:
