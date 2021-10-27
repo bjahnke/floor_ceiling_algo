@@ -81,6 +81,10 @@ class TickerNotFoundError(Exception):
     """error response from td api is Not Found"""
 
 
+class FaultReceivedError(Exception):
+    """received a fault from response to an API request"""
+
+
 @dataclass
 class OrderData:
     _OPEN_ORDER = {
@@ -265,7 +269,7 @@ class _LocalClientMeta(type):
                 account_info_raw = resp.json()
                 try:
                     cls._cached_account_info = AccountInfo(account_info_raw)
-                except KeyError:
+                except (KeyError, json.decoder.JSONDecodeError):
                     pass
                 else:
                     with open('account_data.json', 'w') as outfile:
@@ -417,9 +421,14 @@ class LocalClient(metaclass=_LocalClientMeta):
         else:
             history = resp.json()
             if history.get('candles', None) is None:
-                if history['error'] == 'Not Found':
+                error = history.get('error', None)
+                if error is None and history.get('fault', None) is not None:
+                    raise FaultReceivedError(f'tda responded with fault at {symbol}: {error}')
+                if error == 'Not Found':
                     print(f'td api could not find symbol {symbol}')
                     raise TickerNotFoundError(f'td api could not find symbol {symbol}')
+                elif error is None:
+                    raise Exception
                 else:
                     raise EmptyDataError(f'No data received for symbol {symbol}')
 
