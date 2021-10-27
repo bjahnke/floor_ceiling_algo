@@ -235,9 +235,6 @@ class Signals(DfAccessorBase):
         ))
 
 
-
-
-
 @pd.api.extensions.register_dataframe_accessor('stats')
 class Stats(DfAccessorBase):
     mandatory_cols = ['close', 'b_close']
@@ -312,4 +309,62 @@ class ScanData(DfAccessorBase):
 
     def get_symbols_score(self):
         pass
+
+@pd.api.extensions.register_dataframe_accessor('stop_losses')
+class StopLoss(DfAccessorBase):
+    mandatory_cols = [
+        'signal',
+        'high',
+        'low',
+        'close',
+        'sw_high',
+        'sw_low',
+        'stop_loss'
+    ]
+
+    def __init__(self, df: pd.DataFrame):
+        super().__init__(df)
+
+    def init_trail_stop(self) -> pd.Series:
+        trail_stops = []
+        for signal_data in self._obj.signals.slices():
+            signal = signal_data.signal.iloc[-1]
+            entry_price = signal_data.close.iloc[0]
+            if signal == 1:
+                # shift to exclude first high, since it happened before entry
+                cum_extreme = signal_data.high.shift(-1).cummax()
+                cum_delta_from_entry = (cum_extreme - entry_price) * -1
+                # stop loss increases by the current cumulative max from the beginning stop loss
+                trail_stop = cum_delta_from_entry + signal_data.stop_losses.local_stop()
+            else:
+                cum_extreme = signal_data.low.cummin()
+                cum_delta_from_entry = cum_extreme - entry_price
+                trail_stop = cum_delta_from_entry - signal_data.stop_losses.local_stop()
+
+            trail_stops.append(trail_stop)
+
+        return pd.concat(trail_stops)
+
+    def local_stop(self):
+        s_low = self._obj.sw_low
+        s_high = self._obj.sw_high
+        signal = self._obj.signal
+        close = self._obj.close
+
+        stoploss = (
+            s_low.add(s_high, fill_value=0)
+        ).fillna(method='ffill')  # join all swings in 1 column
+        stoploss[~((np.isnan(signal.shift(1))) & (~np.isnan(signal)))] = np.nan  # keep 1st sl by signal
+        stoploss = stoploss.fillna(method='ffill')  # extend first value with fillna
+
+        # Bull: lowest close, Bear: highest close
+        close_max = close.groupby(stoploss).cummax()
+        close_min = close.groupby(stoploss).cummin()
+        cum_close = np.where(signal == 1, close_min, np.where(signal == -1, close_max, 0))
+
+        # reset signal where stop loss is breached
+        sl_delta = (cum_close - stoploss).fillna(0)
+        sl_sign = signal * np.sign(sl_delta)
+        signal[sl_sign == -1] = np.nan
+        return stoploss
 

@@ -2,6 +2,25 @@ import pandas as pd
 from w3rw.cex.coinbase_pro.messenger import Auth, Messenger
 from w3rw.cex.coinbase_pro.client import get_client
 from abstract_access import AbstractBrokerClient
+from w3rw.cex.coinbase_pro.socket import Stream, Token
+
+
+class CbproStream:
+    def __init__(self, key: str, secret: str, passphrase: str):
+        self._stream = Stream(
+            auth=Token(
+                key=key,
+                secret=secret,
+                passphrase=passphrase
+            )
+        )
+
+    def init_stream(self, symbols):
+        pass
+
+    @property
+    def stream(self):
+        return self._stream
 
 
 # class CbproClient(BrokerClient):
@@ -9,6 +28,10 @@ class CbproClient:
 
     def __init__(self, key: str, secret: str, passphrase: str):
         # super().__init__()
+        self.__key = key
+        self.__secret = secret
+        self.__passphrase = passphrase
+        self._stream = None
         self._client = get_client(key=key, secret=secret, passphrase=passphrase)
 
     @property
@@ -50,5 +73,17 @@ class CbproClient:
 
     def get_order_data(self):
         raise NotImplementedError
+
+    def init_stream(self):
+        self._stream = CbproStream(
+            key=self.__key,
+            secret=self.__secret,
+            passphrase=self.__passphrase
+        )
+        return self._stream.stream
+
+
+
+
 
 

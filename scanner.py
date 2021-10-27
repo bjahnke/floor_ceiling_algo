@@ -8,6 +8,8 @@ import httpx
 import numpy as np
 import requests
 from matplotlib import pyplot as plt
+from strategy_utils import Side
+
 import back_test_utils
 import fc_data_gen
 import tdargs
@@ -22,7 +24,7 @@ from dataclasses import dataclass, field
 import schedule
 import time
 
-account_info = tda_access.LocalClient.account_info()
+# account_info = tda_access.LocalClient.account_info()
 
 
 @dataclass
@@ -112,7 +114,7 @@ def fc_scan_symbol(
     price_data, stats = fc_data_gen.init_fc_data(
         base_symbol=symbol,
         price_data=price_data,
-        equity=account_info.equity
+        equity=5000
     )
 
     last_signal = price_data.signals.slices()[-1]
@@ -136,6 +138,7 @@ def fc_scan_symbol(
         rg='regime_floorceiling',
         bo=200
     )
+    # plt.show()
     plt.savefig(scan_out_info.png_fp(f'{symbol}.png'), bbox_inches='tight')
     # except tda_access.EmptyDataError:
     # except tda_access.TickerNotFoundError:
@@ -411,7 +414,7 @@ def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
     # convert date time to timezone unaware
     try:
         data.index = data.index.tz_convert(None)
-    except AttributeError:
+    except (AttributeError, TypeError):
         pass
 
     return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
@@ -421,7 +424,7 @@ def yf_price_history(symbol, freq_range=None):
     try:
         price_data: pd.DataFrame = yf.Ticker(symbol).history(
             # period=datetime.now() - timedelta(days=58), interval='15m'
-            period='1mo', interval='15m'
+            period='3mo', interval='1h'
         )
     except json.decoder.JSONDecodeError:
         return pd.DataFrame()

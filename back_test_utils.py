@@ -135,7 +135,7 @@ def sma(
     price,
     ma_per,
     min_per,
-    decimals: int
+    decimals: Union[int, None]
 ):
     """
     Returns the simple moving average.
@@ -144,12 +144,10 @@ def sma(
     min_per: minimum periods (expressed as 0<pct<1) to calculate moving average
     decimals: rounding number of decimals
     """
-    return round(
-        df[price]
-        .rolling(window=ma_per, min_periods=int(round(ma_per * min_per, 0)))
-        .mean(),
-        decimals,
-    )
+    res = df[price].rolling(window=ma_per, min_periods=int(round(ma_per * min_per, 0))).mean()
+    if decimals is not None:
+        res = round(res, decimals)
+    return res
 
 # Calculate exponential moving average
 def ema(
@@ -691,6 +689,14 @@ def stop_loss(
     signal[sl_sign == -1] = np.nan
     return stoploss
 
+
+def trail_stop(high: pd.Series, low: pd.Series, close: pd.Series, signal: pd.Series):
+    ts = close[~np.isnan(signal)]
+    hi_lo = np.where(signal == 1, high, np.where(signal == -1, low, np.nan))
+
+
+
+
 def vectorized_stop_loss(
     signal: pd.DataFrame,
     close: pd.Series,
@@ -797,14 +803,14 @@ def init_fc_signal_stoploss(
             price=relative_close,
             ma_per=st,
             min_per=1,
-            decimals=5
+            decimals=None
         )
         r_mt_ma = sma(
             df=data,
             price=relative_close,
             ma_per=mt,
             min_per=1,
-            decimals=5
+            decimals=None
         )
 
         # Calculate positions based on regime and ma cross
