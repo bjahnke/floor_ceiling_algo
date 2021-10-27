@@ -116,7 +116,7 @@ class SymbolData:
             )
             self._cached_data = new_data
             # print(f'{self._name}^ {perf_counter()}')
-        except tda_access.EmptyDataError:
+        except (tda_access.EmptyDataError, tda_access.FaultReceivedError):
             # new_data = self._cached_data
             new_data = None
 
