@@ -39,15 +39,7 @@ def main(min_score: float):
 
 
 if __name__ == '__main__':
-    # print('start')
-    # main(min_score=2.5)
-    local_client = cbpro_access.CbproClient(
-        key='309c01c1e6a9b92e3fd2fb8d933c3c17',
-        secret='WXSGBBCq6QSg+moUTEmK7A0jQQX/jmTgDbFosjCj2qLTFjHfeaNLl+cnNmHcpwsU4vVgB2kLpdYZ9NIbFtgaxg==',
-        passphrase='mfi7arvg829'
-    )
-    products = local_client.usd_products
-    data = local_client.price_history('GRT-USD', start='2021-9-17', end='2021-10-17', granularity=21600)
-    print('done')
+    print('start')
+    main(min_score=2.5, load_pickle=False)
 
 
