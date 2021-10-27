@@ -26,10 +26,14 @@ def symbol_data_factory(*symbols: str) -> List[SymbolData]:
     return res
 
 
-def main(min_score: float):
-    try:
-        account_manager = AccountManager.load_from_pickle()
-    except FileNotFoundError:
+def main(min_score: float, load_pickle=True):
+    account_manager = None
+    if load_pickle:
+        try:
+            account_manager = AccountManager.load_from_pickle()
+        except FileNotFoundError:
+            pass
+    if account_manager is None:
         symbol_watchlist: pd.Series = daily_scan.symbol[daily_scan.score >= min_score]
         account_manager = AccountManager(
             tda_access.LocalClient,
