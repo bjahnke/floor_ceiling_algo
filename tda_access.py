@@ -252,18 +252,25 @@ class _LocalClientMeta(type):
 
     def account_info(cls, cached=False) -> AccountInfo:
         if cached is False or cls._cached_account_info is None:
-            resp = LocalClient.TDA_CLIENT.get_account(
-                account_id=_ACCOUNT_ID,
-                fields=[
-                    tda.client.Client.Account.Fields.ORDERS,
-                    tda.client.Client.Account.Fields.POSITIONS
-                ]
-            )
+
             # dump account data to txt for reference
-            account_info_raw = resp.json()
-            with open('account_data.json', 'w') as outfile:
-                json.dump(account_info_raw, outfile, indent=4)
-            cls._cached_account_info = AccountInfo(account_info_raw)
+            while True:
+                resp = LocalClient.TDA_CLIENT.get_account(
+                    account_id=_ACCOUNT_ID,
+                    fields=[
+                        tda.client.Client.Account.Fields.ORDERS,
+                        tda.client.Client.Account.Fields.POSITIONS
+                    ]
+                )
+                account_info_raw = resp.json()
+                try:
+                    cls._cached_account_info = AccountInfo(account_info_raw)
+                except KeyError:
+                    pass
+                else:
+                    with open('account_data.json', 'w') as outfile:
+                        json.dump(account_info_raw, outfile, indent=4)
+                    break
         return cls._cached_account_info
 
     def orders(cls, status: OrderStatus = None, cached=False):
