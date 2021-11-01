@@ -1,19 +1,15 @@
 import pandas as pd
-from w3rw.cex.coinbase_pro.messenger import Auth, Messenger
-from w3rw.cex.coinbase_pro.client import get_client
-from abstract_access import AbstractBrokerClient
-from w3rw.cex.coinbase_pro.socket import Stream, Token
-
+from coinbase_pro.client import get_client
+from coinbase_pro.socket import get_stream
 
 class CbproStream:
     def __init__(self, key: str, secret: str, passphrase: str):
-        self._stream = Stream(
-            auth=Token(
-                key=key,
-                secret=secret,
-                passphrase=passphrase
-            )
-        )
+        self._stream = get_stream({
+            'key': key,
+            'secret': secret,
+            'passphrase': passphrase,
+            'authority': 'wss://ws-feed.pro.coinbase.com'
+        })
 
     def init_stream(self, symbols):
         pass
@@ -27,12 +23,16 @@ class CbproStream:
 class CbproClient:
 
     def __init__(self, key: str, secret: str, passphrase: str):
-        # super().__init__()
         self.__key = key
         self.__secret = secret
         self.__passphrase = passphrase
         self._stream = None
-        self._client = get_client(key=key, secret=secret, passphrase=passphrase)
+        self._client = get_client({
+            'key': key,
+            'secret': secret,
+            'passphrase': passphrase,
+            'authority': 'wss://ws-feed.pro.coinbase.com'
+        })
 
     @property
     def client(self):
