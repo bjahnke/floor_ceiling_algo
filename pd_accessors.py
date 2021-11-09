@@ -234,6 +234,40 @@ class Signals(DfAccessorBase):
             Side(self._obj.signals.prev)
         ))
 
+    def init_simulated_scale_out(
+        self,
+        stop_loss_col: str = 'stop_loss',
+        target_r: float = 1.5
+    ):
+        """
+        For all signals, calculate remaining position size as a percent
+        if target price is hit.
+        Note, simulation assumes order is filled exactly at order price
+        """
+        assert 1.0 < target_r < 2.0
+        remaining_size_pct = 1 - (1 / target_r)
+        size_percents_group = []
+        for signal_data in self._obj.signals.slices():
+            size_percents = pd.Series(data=1, index=signal_data.index)
+            initial_stop_price = signal_data[stop_loss_col][0]
+            entry_price = signal_data.close[0]
+            signal = signal_data.signal[0]
+
+            target_gain = abs(initial_stop_price - entry_price) * target_r
+            if signal == 1:
+                target_price = entry_price + target_gain
+                extremes = signal_data.high
+                hits_target = (extremes - target_price).cummax() >= 0
+            else:
+                target_price = entry_price - target_gain
+                extremes = signal_data.low
+                hits_target = (extremes - target_price).cummax() <= 0
+
+            size_percents.loc[hits_target] = remaining_size_pct
+            size_percents_group.append(size_percents)
+
+        return pd.concat(size_percents_group)
+
 
 @pd.api.extensions.register_dataframe_accessor('stats')
 class Stats(DfAccessorBase):
@@ -256,7 +290,7 @@ class Stats(DfAccessorBase):
 class Lots(DfAccessorBase):
     mandatory_cols = [
         'eqty_risk_lot',
-        'signal'
+        'signal',
     ]
 
     def __init__(self, df: pd.DataFrame):
@@ -330,20 +364,71 @@ class StopLoss(DfAccessorBase):
         for signal_data in self._obj.signals.slices():
             signal = signal_data.signal.iloc[-1]
             entry_price = signal_data.close.iloc[0]
+
             if signal == 1:
-                # shift to exclude first high, since it happened before entry
-                cum_extreme = signal_data.high.shift(-1).cummax()
-                cum_delta_from_entry = (cum_extreme - entry_price) * -1
-                # stop loss increases by the current cumulative max from the beginning stop loss
-                trail_stop = cum_delta_from_entry + signal_data.stop_losses.local_stop()
+                # TODO practically, initial high should price at time of trail stop entry
+                # initial high is the price we entered (approximately)
+                extremes = signal_data.high.copy()
+                extremes.iat[0] = entry_price
+                cum_extreme = signal_data.high.cummax()
             else:
+                extremes = signal_data.low.copy()
+                extremes.iat[0] = entry_price
                 cum_extreme = signal_data.low.cummin()
-                cum_delta_from_entry = cum_extreme - entry_price
-                trail_stop = cum_delta_from_entry - signal_data.stop_losses.local_stop()
+
+            # shift back to
+            cum_delta_from_entry = (cum_extreme - entry_price)
+            # stop loss increases/decreases by the current cumulative extreme from the beginning stop loss
+            trail_stop = cum_delta_from_entry + signal_data.stop_loss
 
             trail_stops.append(trail_stop)
 
         return pd.concat(trail_stops)
+
+    def trail_to_cost(self, trail_stop: pd.Series) -> t.Tuple[pd.Series, pd.Series]:
+        """
+        TODO does this need to be vectorized?
+        TODO test stop loss generator
+        trailing stop loss that is limited to entry price
+        :param trail_stop:
+        :return:
+        """
+        local_obj = self._obj.copy()
+        local_obj['trail_stop'] = trail_stop
+
+        trail_stops = []
+        cropped_signals = []
+        for signal_data in self._obj.signals.slices():
+            signal = signal_data.signal.copy()
+            signal_dir = signal.iloc[-1]
+            entry_price = signal_data.close.iloc[0]
+            trail_stop_at_cost = signal_data.trail_stop.copy()
+
+            if signal_dir == 1:
+                def crosses_cost(): return trail_stop_at_cost >= entry_price
+                extreme = signal_data.low.copy()
+                trip_stop_params = {
+                    'higher': extreme,
+                    'lower': trail_stop_at_cost
+                }
+            else:
+                def crosses_cost(): return trail_stop_at_cost <= entry_price
+                extreme = signal_data.high.copy()
+                trip_stop_params = {
+                    'higher': trail_stop_at_cost,
+                    'lower': extreme
+                }
+
+            extreme.iat[0] = entry_price
+            trail_stop_at_cost.loc[crosses_cost()] = entry_price
+            where_stop_trips = trips_price(**trip_stop_params)
+            trail_stop_at_cost.loc[where_stop_trips] = np.nan
+            signal.loc[where_stop_trips] = np.nan
+
+            trail_stops.append(trail_stop_at_cost)
+            cropped_signals.append(signal)
+
+        return pd.concat(trail_stops), pd.concat(cropped_signals)
 
     def local_stop(self):
         s_low = self._obj.sw_low
@@ -368,3 +453,7 @@ class StopLoss(DfAccessorBase):
         signal[sl_sign == -1] = np.nan
         return stoploss
 
+
+def trips_price(higher, lower):
+    cum_delta = (higher - lower).cummin()
+    return cum_delta <= 0

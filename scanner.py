@@ -420,11 +420,11 @@ def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
     return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
 
 
-def yf_price_history(symbol, freq_range=None):
+def yf_price_history(symbol: str, freq_range=None, period='3mo', interval='1h'):
     try:
         price_data: pd.DataFrame = yf.Ticker(symbol).history(
             # period=datetime.now() - timedelta(days=58), interval='15m'
-            period='3mo', interval='1h'
+            period=period, interval=interval
         )
     except json.decoder.JSONDecodeError:
         return pd.DataFrame()

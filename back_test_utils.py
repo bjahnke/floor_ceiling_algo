@@ -630,7 +630,7 @@ def rolling_stdev(
 
 
 # Calculates the signals
-def signal_fcstmt(regime, st, mt) -> pd.Series:
+def signal_fcstmt(regime: pd.Series, st: pd.Series, mt: pd.Series) -> pd.Series:
     """
     This function overimposes st/mt moving average cross condition on regime
     it will have an active position only if regime and moving averages are aligned
@@ -643,7 +643,6 @@ def signal_fcstmt(regime, st, mt) -> pd.Series:
     """
     # Calculate the sign of the stmt delta
     stmt_sign = np.sign((st - mt).fillna(0))
-
     # Calculate entries/exits based on regime and stmt delta
     active = np.where(np.sign(regime * stmt_sign) == 1, 1, np.nan)
     return regime * active
@@ -688,13 +687,6 @@ def stop_loss(
     sl_sign = signal * np.sign(sl_delta)
     signal[sl_sign == -1] = np.nan
     return stoploss
-
-
-def trail_stop(high: pd.Series, low: pd.Series, close: pd.Series, signal: pd.Series):
-    ts = close[~np.isnan(signal)]
-    hi_lo = np.where(signal == 1, high, np.where(signal == -1, low, np.nan))
-
-
 
 
 def vectorized_stop_loss(
@@ -781,20 +773,22 @@ def init_fc_signal_stoploss(
             [
                 relative_close,
                 base_close,
+                'high',
+                'low',
+                'sw_b_low',
+                'sw_b_high',
+                sw_rebased_low,
+                sw_rebased_high,
                 r_return_1d,
                 return_1d,
                 r_regime_floorceiling,
-                sw_rebased_low,
-                sw_rebased_high,
                 'regime_change',
-                'sw_b_low',
-                'sw_b_high'
             ]
         ].copy()
 
         stmt = str(st) + str(mt)
-        signal_col = 's' + stmt
-        stop_loss_col = 'sl' + stmt
+        signal_col = 'signal'
+        stop_loss_col = 'stop_loss'
         daily_returns_col = 'd' + stmt
 
         # Calculate moving averages
@@ -818,12 +812,26 @@ def init_fc_signal_stoploss(
             regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma
         )
 
-        signals = data[pd.notnull(data[signal_col])]
-        if len(signals) == 0:
+        if len(data.signals.slices()) == 0:
             # no signals found, skip
             continue
 
-        first_position_dt = signals.index[0]
+        # crop out first signal if data set does not capture where the first cross occurred
+        stmt_sign = pd.Series(np.sign((r_st_ma - r_mt_ma))).backfill()
+        ma_crosses = data.loc[stmt_sign != stmt_sign.shift(1).backfill()]
+        try:
+            first_cross_date = ma_crosses.index[0]
+        except IndexError:
+            print('ma never crosses in data set')
+            continue
+
+        first_signal = data.signals.slices()[0]
+        if first_signal.index[0] < first_cross_date:
+            data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = np.nan
+
+        if len(data.signals.slices()) == 0:
+            # initial signal not valid. none left. skip
+            continue
 
         # stop loss (relative)
         data[stop_loss_col] = stop_loss(
@@ -841,13 +849,38 @@ def init_fc_signal_stoploss(
             s_high=data['sw_b_high']
         )
 
+        if len(data.signals.slices()) == 0:
+            print('no signals after stop loss generation')
+            # initial signal not valid. none left. skip
+            continue
+
+        data['trail_stop'] = data.stop_losses.init_trail_stop()
+        data['trail_stop_to_cost'], data['signal'] = data.stop_losses.trail_to_cost(
+            trail_stop=data.trail_stop
+        )
+
+        if len(data.signals.slices()) == 0:
+            print('no signals after trail stop generation')
+            # initial signal not valid. none left. skip
+            continue
+
+        # TODO target_r should be input to strategy
+        data['size_remaining'] = data.signals.init_simulated_scale_out(
+            stop_loss_col=stop_loss_col,
+            target_r=1.5
+        )
+
         # Date of initial position to calculate excess returns for passive
         # Passive stats are recalculated each time because start date changes with stmt sma
+        first_position_dt = data.signals.slices()[0].index[0]
         data_sliced = data[first_position_dt:].copy()
 
         # Calculate daily & cumulative returns and include transaction costs
+        # BJ: scale returns by a factor of the remaining position
         data_sliced[daily_returns_col] = (
-            data_sliced['r_return_1d'] * data_sliced[signal_col].shift(1)
+            data_sliced['r_return_1d'] *
+            data_sliced[signal_col].shift(1) *
+            data_sliced.size_remaining
         )
 
         data_sliced[daily_returns_col] = transaction_costs(

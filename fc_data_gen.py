@@ -66,7 +66,7 @@ def init_fc_data(
         round_lot: int = 1,
         constant_risk: float = 0.25 / 100,
         constant_weight: float = 3 / 100,
-):
+) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     """
 
     :param base_symbol:
@@ -141,12 +141,6 @@ def init_fc_data(
 
     price_data['ceiling'] = price_data.loc[price_data.regime_floorceiling == -1, 'regime_change']
     price_data['floor'] = price_data.loc[price_data.regime_floorceiling == 1, 'regime_change']
-
-    # TODO this code is extremely brittle. Will break if columns are added or changed in df
-    price_data = price_data.rename(columns={
-        price_data.columns[10]: 'signal',
-        price_data.columns[11]: 'stop_loss'
-    })
 
     price_data['eqty_risk_lot'] = 0
     price_data['equal_weight_lot'] = 0
