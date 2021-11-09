@@ -4,10 +4,10 @@ import tda_access
 from account_manager import SymbolData, AccountManager
 from scanner import yf_price_history
 import pandas as pd
-import pd_accessors
-import cbpro_access
+# import pd_accessors
+# import cbpro_access
 
-daily_scan = pd.read_excel(r'C:\Users\bjahn\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
+daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
 
 
 def symbol_data_factory(*symbols: str) -> List[SymbolData]:
