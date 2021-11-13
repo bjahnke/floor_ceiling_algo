@@ -151,12 +151,14 @@ class SymbolData:
         else:
             self._cached_data = analyzed_data
             if analyzed_data.signals.status in self._valid_signals:
+                # assume the current bar is complete
+                current_bar = analyzed_data.iloc[-1]
                 order_data = tda_access.OrderData(
                     name=self._name,
                     direction=Side(analyzed_data.signals.current),
-                    # quantity=current_bar.eqty_risk_lot * current_bar.signal,
-                    quantity=1,
-                    stop_loss=analyzed_data.stop_loss_base.iloc[-1]
+                    quantity=current_bar.eqty_risk_lot * current_bar.signal,
+                    stop_loss=analyzed_data.stop_loss_base.iloc[-1],
+                    size_remaining_pct=current_bar.size_remaining
                 )
             else:
                 order_data = tda_access.OrderData.no_signal()
@@ -258,14 +260,16 @@ class SymbolManager:
             # stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
         # TODO elif new_order is not None and current_signal.direction != position.side:
-        elif new_order is not None and current_signal.direction != position.side:
-            self.order_id, order_status = self._broker_client.place_order_spec(position.full_close())
-            # TODO retrieve stop order id from TDA order log if hard reset occurs
-            self._broker_client.cancel_order(self.stop_order_id)
-            self.order_id = None
-            self.stop_order_id = None
-            self._current_signal = None
-            new_trade_state = SymbolState.REST
+        elif new_order is not None:
+            # the signal has ended per the defined rules, close the remainder of the position
+            if current_signal.direction != position.side:
+                self.order_id, order_status = self._broker_client.place_order_spec(position.full_close())
+                # TODO retrieve stop order id from TDA order log if hard reset occurs
+                self._broker_client.cancel_order(self.stop_order_id)
+                self.order_id = None
+                self.stop_order_id = None
+                self._current_signal = None
+                new_trade_state = SymbolState.REST
 
         return new_trade_state
 

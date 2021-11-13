@@ -997,32 +997,33 @@ def get_position_size(
     data_cpy = data.copy()
 
     # Define posSizer weight
-    data_cpy['eqty_risk'] = equity_at_risk(
-        px_adj=data_cpy['close'],
-        stop_loss=data_cpy[stop_loss_col],
-        risk=constant_risk
-    )
+    data_cpy['eqty_risk'] = data_cpy.signals.equity_risk_weight(risk=constant_risk)
 
     # Instantiation of equity curves
     data_cpy['equity_at_risk'] = capital
-    data_cpy['equal_weight'] = capital
+    # data_cpy['equal_weight'] = capital
+    data_cpy.eqty_risk_lot = data_cpy.signals.calc_lot(
+        capital=data_cpy.equity_at_risk.iloc[0],
+        weight_col='eqty_risk',
+        round_lot=round_lot,
+        fx_rate=1
+    )
+    # eqty_risk_lot = get_round_lot(
+    #     weight=data_cpy.eqty_risk,
+    #     capital=data_cpy.equity_at_risk,
+    #     fx_rate=1,
+    #     price_local=data_cpy.b_close,
+    #     roundlot=round_lot
+    # )
 
-    eqty_risk_lot = get_round_lot(
-        weight=data_cpy.eqty_risk,
-        capital=data_cpy.equity_at_risk,
-        fx_rate=1,
-        price_local=data_cpy.b_close,
-        roundlot=round_lot
-    )
-    equal_weight_lot = get_round_lot(
-        weight=constant_weight,
-        capital=data_cpy.equal_weight,
-        fx_rate=1,
-        price_local=data_cpy.b_close,
-        roundlot=round_lot
-    )
-    data_cpy.eqty_risk_lot = eqty_risk_lot
-    data_cpy.equal_weight_lot = equal_weight_lot
+    # equal_weight_lot = get_round_lot(
+    #     weight=constant_weight,
+    #     capital=data_cpy.equal_weight,
+    #     fx_rate=1,
+    #     price_local=data_cpy.b_close,
+    #     roundlot=round_lot
+    # )
+    # data_cpy.equal_weight_lot = equal_weight_lot
 
     return data_cpy
 

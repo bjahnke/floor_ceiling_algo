@@ -268,6 +268,39 @@ class Signals(DfAccessorBase):
 
         return pd.concat(size_percents_group)
 
+    def equity_risk_weight(self, risk: float, stop_loss_col: str = 'stop_loss') -> pd.Series:
+        position_weight = []
+        for signal_data in self._obj.signals.slices():
+            px_adj = signal_data.close.iloc[0]
+            stop_loss = signal_data[stop_loss_col].iloc[0]
+
+            # dsl = px_adj / stop_loss - 1  # distance to stop loss in currency adjusted relative
+            dsl = (px_adj - stop_loss) / px_adj
+            try:
+                eqty_at_risk = risk / dsl  # weight in currency adjusted relative terms
+            except ZeroDivisionError:
+                eqty_at_risk = 0
+
+            # weight = pd.Series(data=eqty_at_risk, index=signal_data.index)
+            weight = pd.Series(data=eqty_at_risk, index=signal_data.index)
+            position_weight.append(weight)
+
+        return pd.concat(position_weight)
+
+    def calc_lot(self, capital, weight_col: str, fx_rate=1, round_lot=1) -> pd.Series:
+        """calculate the size in number of shares"""
+        lots = []
+        for signal_data in self._obj.signals.slices():
+            weight = signal_data[weight_col].iloc[0]
+            entry_price = signal_data.close.iloc[0]
+
+            book_value = weight * capital
+            shares = book_value * fx_rate / entry_price
+            lot = round(shares // round_lot, 0) * round_lot
+
+            lots.append(pd.Series(data=lot, index=signal_data.index))
+        return pd.concat(lots)
+
 
 @pd.api.extensions.register_dataframe_accessor('stats')
 class Stats(DfAccessorBase):

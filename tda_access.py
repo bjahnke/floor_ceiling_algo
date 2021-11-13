@@ -119,10 +119,10 @@ class OrderData:
     quantity: int
     stop_loss: t.Union[float, None] = field(default=None)
     status: OrderStatus = field(default=None)
+    size_remaining_pct: float = field(default=1)
 
     def __post_init__(self):
-        if self.quantity < 0:
-            self.quantity = 0
+        self.quantity = max(self.quantity, 0)
 
     @classmethod
     def no_signal(cls, side: Side = Side.CLOSE):
@@ -138,23 +138,28 @@ class OrderData:
 
     @property
     def close_order_spec(self) -> t.Union[OrderBuilder, None]:
-        return self._get_order_spec(OrderData._CLOSE_ORDER)
+        # remaining size of 1 will result in quantity of 0: order = None
+        close_quantity = self.quantity - (self.quantity * self.size_remaining_pct)
+        return self._get_order_spec(OrderData._CLOSE_ORDER, quantity=close_quantity)
 
     @property
     def stop_order_spec(self) -> t.Union[OrderBuilder, None]:
         return self._get_order_spec(OrderData._OPEN_STOP)
 
-    def _get_order_spec(self, order_dict: ORDER_DICT) -> t.Union[OrderBuilder, None]:
+    def _get_order_spec(self, order_dict: ORDER_DICT, quantity=None) -> t.Union[OrderBuilder, None]:
         # sourcery skip: lift-return-into-if
         """
         abstract method for retrieving order spec corresponding to this order data
         with a default case that returns None when called
         """
-        if self.quantity == 0:
+        if quantity is None:
+            quantity = self.quantity
+
+        if quantity == 0:
             order_spec = None
         else:
             order_spec = order_dict.get(self.direction, lambda _, __, ___: None)(
-                self.name, self.quantity, self.stop_loss
+                self.name, quantity, self.stop_loss
             )
         return order_spec
 
@@ -216,7 +221,7 @@ class AccountInfo:
         # self._pending_orders = self._parse_order_statuses()
 
     @property
-    def positions(self):
+    def positions(self) -> t.Dict[str, Position]:
         return self._positions
 
     @property
