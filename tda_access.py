@@ -264,13 +264,18 @@ class _LocalClientMeta(type):
 
             # dump account data to txt for reference
             while True:
-                resp = LocalClient.TDA_CLIENT.get_account(
-                    account_id=_ACCOUNT_ID,
-                    fields=[
-                        tda.client.Client.Account.Fields.ORDERS,
-                        tda.client.Client.Account.Fields.POSITIONS
-                    ]
-                )
+                try:
+                    resp = LocalClient.TDA_CLIENT.get_account(
+                        account_id=_ACCOUNT_ID,
+                        fields=[
+                            tda.client.Client.Account.Fields.ORDERS,
+                            tda.client.Client.Account.Fields.POSITIONS
+                        ]
+                    )
+                except authlib.integrations.base_client.errors.OAuthError as e:
+                    print(e)
+                    continue
+
                 account_info_raw = resp.json()
                 try:
                     cls._cached_account_info = AccountInfo(account_info_raw)
@@ -423,19 +428,23 @@ class LocalClient(metaclass=_LocalClientMeta):
             )
         except OAuthError:
             raise EmptyDataError
-        else:
+
+        try:
             history = resp.json()
-            if history.get('candles', None) is None:
-                error = history.get('error', None)
-                if error is None and history.get('fault', None) is not None:
-                    raise FaultReceivedError(f'tda responded with fault at {symbol}: {error}')
-                if error == 'Not Found':
-                    print(f'td api could not find symbol {symbol}')
-                    raise TickerNotFoundError(f'td api could not find symbol {symbol}')
-                elif error is None:
-                    raise Exception
-                else:
-                    raise EmptyDataError(f'No data received for symbol {symbol}')
+        except json.decoder.JSONDecodeError:
+            raise EmptyDataError
+
+        if history.get('candles', None) is None:
+            error = history.get('error', None)
+            if error is None and history.get('fault', None) is not None:
+                raise FaultReceivedError(f'tda responded with fault at {symbol}: {error}')
+            if error == 'Not Found':
+                print(f'td api could not find symbol {symbol}')
+                raise TickerNotFoundError(f'td api could not find symbol {symbol}')
+            elif error is None:
+                raise Exception
+            else:
+                raise EmptyDataError(f'No data received for symbol {symbol}')
 
         df = pd.DataFrame(history['candles'])
 
