@@ -10,6 +10,7 @@ setup(
     author_email='',
     description='',
     install_requires=[
+        'better-abc',
         'dotmap',
         'numpy',
         'matplotlib',

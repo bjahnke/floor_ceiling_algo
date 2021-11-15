@@ -855,7 +855,11 @@ def init_fc_signal_stoploss(
             continue
 
         data['trail_stop'] = data.stop_losses.init_trail_stop()
-        data['trail_stop_to_cost'], data['signal'] = data.stop_losses.trail_to_cost(
+        (
+            data['trail_stop_to_cost'],
+            data['signal'],
+            data['stop_status']
+        ) = data.stop_losses.trail_to_cost(
             trail_stop=data.trail_stop
         )
 
@@ -865,7 +869,7 @@ def init_fc_signal_stoploss(
             continue
 
         # TODO target_r should be input to strategy
-        data['size_remaining'] = data.signals.init_simulated_scale_out(
+        data['size_remaining'], data['target_price'] = data.signals.init_simulated_scale_out(
             stop_loss_col=stop_loss_col,
             target_r=1.5
         )

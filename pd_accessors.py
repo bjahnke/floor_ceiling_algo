@@ -56,8 +56,8 @@ class PriceOperators:
     def sma(self, ma_per: int, min_per: int, decimals: int):
         return round(
             self._obj
-            .rolling(window=ma_per, min_periods=int(round(ma_per * min_per, 0)))
-            .mean(),
+                .rolling(window=ma_per, min_periods=int(round(ma_per * min_per, 0)))
+                .mean(),
             decimals
         )
 
@@ -145,6 +145,7 @@ class FcData(DfAccessorBase):
     def position_sizes(self):
         """"""
         return None
+
 
 @pd.api.extensions.register_dataframe_accessor('signals')
 class Signals(DfAccessorBase):
@@ -238,7 +239,7 @@ class Signals(DfAccessorBase):
         self,
         stop_loss_col: str = 'stop_loss',
         target_r: float = 1.5
-    ):
+    ) -> t.Tuple[pd.Series, pd.Series]:
         """
         For all signals, calculate remaining position size as a percent
         if target price is hit.
@@ -247,6 +248,7 @@ class Signals(DfAccessorBase):
         assert 1.0 < target_r < 2.0
         remaining_size_pct = 1 - (1 / target_r)
         size_percents_group = []
+        target_group = []
         for signal_data in self._obj.signals.slices():
             size_percents = pd.Series(data=1, index=signal_data.index)
             initial_stop_price = signal_data[stop_loss_col][0]
@@ -265,8 +267,9 @@ class Signals(DfAccessorBase):
 
             size_percents.loc[hits_target] = remaining_size_pct
             size_percents_group.append(size_percents)
+            target_group.append(pd.Series(data=target_price, index=signal_data.index))
 
-        return pd.concat(size_percents_group)
+        return pd.concat(size_percents_group), pd.concat(target_group)
 
     def equity_risk_weight(self, risk: float, stop_loss_col: str = 'stop_loss') -> pd.Series:
         position_weight = []
@@ -299,7 +302,7 @@ class Signals(DfAccessorBase):
             lot = round(shares // round_lot, 0) * round_lot
 
             lots.append(pd.Series(data=lot, index=signal_data.index))
-        return pd.concat(lots)
+        return pd.concat(lots).fillna(value=0)
 
 
 @pd.api.extensions.register_dataframe_accessor('stats')
@@ -377,6 +380,7 @@ class ScanData(DfAccessorBase):
     def get_symbols_score(self):
         pass
 
+
 @pd.api.extensions.register_dataframe_accessor('stop_losses')
 class StopLoss(DfAccessorBase):
     mandatory_cols = [
@@ -418,7 +422,7 @@ class StopLoss(DfAccessorBase):
 
         return pd.concat(trail_stops)
 
-    def trail_to_cost(self, trail_stop: pd.Series) -> t.Tuple[pd.Series, pd.Series]:
+    def trail_to_cost(self, trail_stop: pd.Series) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
         """
         TODO does this need to be vectorized?
         TODO test stop loss generator
@@ -431,6 +435,7 @@ class StopLoss(DfAccessorBase):
 
         trail_stops = []
         cropped_signals = []
+        stop_status = []
         for signal_data in self._obj.signals.slices():
             signal = signal_data.signal.copy()
             signal_dir = signal.iloc[-1]
@@ -438,30 +443,40 @@ class StopLoss(DfAccessorBase):
             trail_stop_at_cost = signal_data.trail_stop.copy()
 
             if signal_dir == 1:
-                def crosses_cost(): return trail_stop_at_cost >= entry_price
+                def crosses_cost():
+                    return trail_stop_at_cost >= entry_price
+
                 extreme = signal_data.low.copy()
                 trip_stop_params = {
                     'higher': extreme,
                     'lower': trail_stop_at_cost
                 }
             else:
-                def crosses_cost(): return trail_stop_at_cost <= entry_price
+                def crosses_cost():
+                    return trail_stop_at_cost <= entry_price
+
                 extreme = signal_data.high.copy()
                 trip_stop_params = {
                     'higher': trail_stop_at_cost,
                     'lower': extreme
                 }
-
+            where_crosses_cost = crosses_cost()
             extreme.iat[0] = entry_price
-            trail_stop_at_cost.loc[crosses_cost()] = entry_price
+            trail_stop_at_cost.loc[where_crosses_cost] = entry_price
             where_stop_trips = trips_price(**trip_stop_params)
             trail_stop_at_cost.loc[where_stop_trips] = np.nan
             signal.loc[where_stop_trips] = np.nan
+            where_crosses_cost.loc[where_stop_trips] = np.nan
 
             trail_stops.append(trail_stop_at_cost)
             cropped_signals.append(signal)
+            stop_status.append(where_crosses_cost)
 
-        return pd.concat(trail_stops), pd.concat(cropped_signals)
+        return (
+            pd.concat(trail_stops),
+            pd.concat(cropped_signals),
+            pd.concat(stop_status)
+        )
 
     def local_stop(self):
         s_low = self._obj.sw_low

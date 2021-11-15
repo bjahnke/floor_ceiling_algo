@@ -10,9 +10,10 @@ import datetime
 
 import authlib
 from authlib.integrations.base_client import OAuthError
-from tda.orders.common import OrderType, Duration
+from tda.orders.common import OrderType, Duration, Session
 from tda.orders.generic import OrderBuilder
 
+import abstract_access
 import credentials
 import asyncio
 
@@ -87,28 +88,47 @@ class FaultReceivedError(Exception):
 
 @dataclass
 class OrderData:
-    _OPEN_ORDER = {
+    OPEN_ORDER = {
         Side.LONG: lambda sym, qty, _: toe.equity_buy_market(sym, qty),
         Side.SHORT: lambda sym, qty, _: toe.equity_sell_short_market(sym, qty),
     }
 
-    _CLOSE_ORDER = {
+    CLOSE_ORDER = {
         Side.LONG: lambda sym, qty, _: toe.equity_sell_market(sym, qty),
         Side.SHORT: lambda sym, qty, _: toe.equity_buy_to_cover_market(sym, qty),
     }
 
-    _OPEN_STOP = {
+    OPEN_STOP = {
+
         Side.LONG: lambda sym, qty, stop_price: (
             toe.equity_sell_market(sym, qty)
             .set_order_type(OrderType.STOP)
             .set_stop_price(stop_price)
             .set_duration(Duration.GOOD_TILL_CANCEL)
+            .set_session(Session.SEAMLESS)
         ),
         Side.SHORT: lambda sym, qty, stop_price: (
             toe.equity_buy_to_cover_market(sym, qty)
             .set_order_type(OrderType.STOP)
             .set_stop_price(stop_price)
             .set_duration(Duration.GOOD_TILL_CANCEL)
+            .set_session(Session.SEAMLESS)
+        ),
+    }
+    NEW_OPEN_STOP = {
+        Side.LONG: lambda sym, qty, stop_price, stop_type: (
+            toe.equity_sell_market(sym, qty)
+            .set_order_type(stop_type)
+            .set_stop_price(stop_price)
+            .set_duration(Duration.GOOD_TILL_CANCEL)
+            .set_session(Session.SEAMLESS)
+        ),
+        Side.SHORT: lambda sym, qty, stop_price, stop_type: (
+            toe.equity_buy_to_cover_market(sym, qty)
+            .set_order_type(stop_type)
+            .set_stop_price(stop_price)
+            .set_duration(Duration.GOOD_TILL_CANCEL)
+            .set_session(Session.SEAMLESS)
         ),
     }
 
@@ -134,17 +154,11 @@ class OrderData:
 
     @property
     def open_order_spec(self) -> t.Union[OrderBuilder, None]:
-        return self._get_order_spec(OrderData._OPEN_ORDER)
-
-    @property
-    def close_order_spec(self) -> t.Union[OrderBuilder, None]:
-        # remaining size of 1 will result in quantity of 0: order = None
-        close_quantity = self.quantity - (self.quantity * self.size_remaining_pct)
-        return self._get_order_spec(OrderData._CLOSE_ORDER, quantity=close_quantity)
+        return self._get_order_spec(OrderData.OPEN_ORDER)
 
     @property
     def stop_order_spec(self) -> t.Union[OrderBuilder, None]:
-        return self._get_order_spec(OrderData._OPEN_STOP)
+        return self._get_order_spec(OrderData.OPEN_STOP)
 
     def _get_order_spec(self, order_dict: ORDER_DICT, quantity=None) -> t.Union[OrderBuilder, None]:
         # sourcery skip: lift-return-into-if
@@ -164,37 +178,47 @@ class OrderData:
         return order_spec
 
 
-@dataclass
-class Position:
-    raw_position: dict
-    symbol: str = field(init=False)
-    value: int = field(init=False)
-    qty: int = field(init=False)
-    _side: Side = field(init=False)
-    _order_data: OrderData = field(init=False)
-
-    def __post_init__(self):
-        self.symbol = self.raw_position['instrument']['symbol']
-        self.value = self.raw_position['marketValue']
-        if self.raw_position['shortQuantity'] > 0:
-            self.qty = self.raw_position['shortQuantity']
-            self._side = Side.SHORT
-        else:
-            self.qty = self.raw_position['longQuantity']
-            self._side = Side.LONG
-
-        self._order_data = OrderData(
-            name=self.symbol,
-            direction=self._side,
-            quantity=self.qty,
+class Position(abstract_access.AbstractPosition):
+    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None):
+        super().__init__(
+            symbol=symbol,
+            qty=qty,
+            side=side,
+            raw_position=raw_position,
+            stop_value=stop_value
         )
 
-    @property
-    def side(self):
-        return self._side
+    @classmethod
+    def init_existing_position(cls, raw_position):
+        """
+        initialize Position from data retrieved via api call
+        :param raw_position:
+        :return:
+        """
+        short_qty = raw_position['shortQuantity']
+        long_qty = raw_position['longQuantity']
+        if short_qty > 0:
+            qty = short_qty
+            side = Side.SHORT
+        else:
+            qty = long_qty
+            side = Side.LONG
+        new_position = cls(
+            symbol=raw_position['instrument']['symbol'],
+            qty=qty,
+            side=side,
+            raw_position=raw_position,
+        )
+        new_position.value = raw_position['marketValue']
 
-    def full_close(self) -> OrderBuilder:
-        return self._order_data.close_order_spec
+    def _stop_order(self):
+        return OrderData.NEW_OPEN_STOP[self.side](self._symbol, self.qty, self._stop_value, self._stop_type)
+
+    def _open(self, quantity):
+        return OrderData.OPEN_ORDER[self._side](self._symbol, quantity, None)
+
+    def _close(self, quantity):
+        return OrderData.CLOSE_ORDER[self._side](self._symbol, quantity, None)
 
 
 @dataclass
@@ -213,11 +237,27 @@ class AccountInfo:
         self.buy_power = cur_balance['buyingPower']
 
         raw_positions = self.acct_data_raw['securitiesAccount'].get('positions', dict())
-        self._positions = {
-            pos['instrument']['symbol']: Position(pos)
-            for pos in raw_positions
-            if pos['instrument']['cusip'] != '9ZZZFD104'  # don't add position if it is money_market
-        }
+        self._positions = {}
+        for pos in raw_positions:
+            # don't add position if it is money_market
+            if pos['instrument']['cusip'] != '9ZZZFD104':
+                short_qty = pos['shortQuantity']
+                long_qty = pos['longQuantity']
+                if short_qty > 0:
+                    qty = short_qty
+                    side = Side.SHORT
+                else:
+                    qty = long_qty
+                    side = Side.LONG
+
+                self._positions[
+                    pos['instrument']['symbol']
+                ] = Position(
+                    raw_position=pos,
+                    symbol=pos['instrument']['symbol'],
+                    qty=qty,
+                    side=Side(side)
+                )
         # self._pending_orders = self._parse_order_statuses()
 
     @property
@@ -469,6 +509,8 @@ class LocalClient(metaclass=_LocalClientMeta):
 
         return df
 
-
+    @classmethod
+    def init_position(cls, symbol, quantity, side, stop_value=None) -> Position:
+        return Position(symbol, quantity, side, stop_value)
 
 

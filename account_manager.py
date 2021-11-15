@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import math
 import pickle
 from datetime import datetime, timedelta
 from enum import Enum, auto
@@ -6,7 +8,9 @@ from time import perf_counter
 
 import httpx
 from matplotlib import pyplot as plt
+from tda.orders.common import OrderType
 
+import abstract_access
 import back_test_utils
 import pandas as pd
 from copy import copy
@@ -107,6 +111,10 @@ class SymbolData:
     def name(self):
         return self._name
 
+    @property
+    def cached_data(self):
+        return self._cached_data
+
     def get_price_data(self):
         # new_data = yf_price_history(symbol=self._name)
         try:
@@ -126,7 +134,7 @@ class SymbolData:
 
         return new_data
 
-    def get_current_signal(self) -> tda_access.OrderData:
+    def get_current_signal(self) -> abstract_access.AbstractPosition:
         # new_data = yf_price_history(symbol=self._name)
         new_data = self.get_price_data()
         if new_data is None:
@@ -153,12 +161,11 @@ class SymbolData:
             if analyzed_data.signals.status in self._valid_signals:
                 # assume the current bar is complete
                 current_bar = analyzed_data.iloc[-1]
-                order_data = tda_access.OrderData(
-                    name=self._name,
-                    direction=Side(analyzed_data.signals.current),
-                    quantity=current_bar.eqty_risk_lot * current_bar.signal,
-                    stop_loss=analyzed_data.stop_loss_base.iloc[-1],
-                    size_remaining_pct=current_bar.size_remaining
+                order_data = self._broker_client.init_position(
+                    symbol=self.name,
+                    side=Side(analyzed_data.signals.current),
+                    qty=math.floor(current_bar.eqty_risk_lot * current_bar.signal * current_bar.size_remaining),
+                    stop_value=current_bar.trail_stop_to_cost
                 )
             else:
                 order_data = tda_access.OrderData.no_signal()
@@ -210,7 +217,6 @@ class SymbolManager:
         self.stop_order_id = None
         self._status = 'OKAY'
         self._current_signal = None
-
         self._STATE_LOOKUP = {
 
             SymbolState.REST: self.rest,
@@ -252,35 +258,43 @@ class SymbolManager:
     def filled(self) -> SymbolState:
         new_trade_state = SymbolState.FILLED
         current_signal = self.symbol_data.get_current_signal()
-        new_order = current_signal.close_order_spec
 
         position = self._broker_client.account_info().positions.get(self.symbol_data.name, None)
         if position is None:
-            # if no position found for this symbol,
-            # stop loss was triggered or position closed externally
+            # if no position found for this symbol, stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
         # TODO elif new_order is not None and current_signal.direction != position.side:
-        elif new_order is not None:
+        elif (new_order := position.set_size(current_signal.qty)) is not None:
             # the signal has ended per the defined rules, close the remainder of the position
-            if current_signal.direction != position.side:
-                self.order_id, order_status = self._broker_client.place_order_spec(position.full_close())
+            self.order_id, order_status = self._broker_client.place_order_spec(new_order)
+            if position.qty == 0:
                 # TODO retrieve stop order id from TDA order log if hard reset occurs
                 self._broker_client.cancel_order(self.stop_order_id)
                 self.order_id = None
                 self.stop_order_id = None
                 self._current_signal = None
                 new_trade_state = SymbolState.REST
+        else:
+            # upon transition of stop status, remove trailing stop and set stop at cost
+            # (or rather, the close price of entry bar)
+            stop_status = self.symbol_data.cached_data.stop_status.iloc[-1]
+            stop_status_prev = self.symbol_data.cached_data.stop_status.iloc[-2]
+            if stop_status == 1 and stop_status_prev == 0:
+                self._broker_client.cancel_order(self.stop_order_id)
+                self.stop_order_id = self._broker_client.place_order_spec(
+                    current_signal.init_stop_loss(OrderType.STOP)
+                )
 
         return new_trade_state
 
     def rest(self) -> SymbolState:
         new_trade_state = SymbolState.REST
         self._current_signal = self.symbol_data.get_current_signal()
-        order_spec = self._current_signal.open_order_spec
-
+        order_spec = self._current_signal.open_order()
         # no order template corresponding to the current signal val means trade signal not given
         if order_spec is not None:
             self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
+            # save order status for diagnostic purposes
             self._current_signal.status = OrderStatus(order_status)
             new_trade_state = SymbolState.ORDER_PENDING
         return new_trade_state
@@ -296,7 +310,7 @@ class SymbolManager:
             # must wait for open order to fill before setting stop,
             # otherwise it will cancel the initial order
             self.stop_order_id = self._broker_client.place_order_spec(
-                self._current_signal.stop_order_spec
+                self._current_signal.init_stop_loss(OrderType.TRAILING_STOP)
             )
             new_trade_state = SymbolState.FILLED
         elif order_data.status == OrderStatus.REJECTED:
@@ -309,7 +323,6 @@ class SymbolManager:
         """
         TODO: wait until current signal is None, then set state to REST
         """
-        
         return SymbolState.ERROR
 
 
