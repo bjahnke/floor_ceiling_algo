@@ -88,7 +88,7 @@ def init_fc_data(
     :param constant_weight:
     :return:
     """
-
+    price_data = price_data[~price_data.index.duplicated(keep='first')]
     try:
         price_data = btu.swings(
             df=price_data,
