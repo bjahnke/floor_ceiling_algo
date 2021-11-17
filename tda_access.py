@@ -179,13 +179,14 @@ class OrderData:
 
 
 class Position(abstract_access.AbstractPosition):
-    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None):
+    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None, data_row=None):
         super().__init__(
             symbol=symbol,
             qty=qty,
             side=side,
             raw_position=raw_position,
-            stop_value=stop_value
+            stop_value=stop_value,
+            data_row=data_row,
         )
 
     @classmethod
@@ -465,6 +466,7 @@ class LocalClient(metaclass=_LocalClientMeta):
                 frequency=freq_range.freq.val,
                 start_datetime=freq_range.range.start,
                 end_datetime=freq_range.range.end,
+                need_extended_hours_data=False,
             )
         except OAuthError:
             raise EmptyDataError
@@ -510,7 +512,7 @@ class LocalClient(metaclass=_LocalClientMeta):
         return df
 
     @classmethod
-    def init_position(cls, symbol, quantity, side, stop_value=None) -> Position:
-        return Position(symbol, quantity, side, stop_value)
+    def init_position(cls, symbol, quantity, side, stop_value=None, data_row=None) -> Position:
+        return Position(symbol, quantity, side, stop_value, data_row=None)
 
 

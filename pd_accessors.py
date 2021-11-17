@@ -204,11 +204,11 @@ class Signals(DfAccessorBase):
     @property
     def current(self):
         """the current signal of the most recent bar. [-1, 0, 1, nan]"""
-        return self._obj.signal[-1]
+        return self._obj.signal.iloc[-1]
 
     @property
     def prev(self):
-        return self._obj.signal[-2]
+        return self._obj.signal.iloc[-2]
 
     def cumulative_returns(self, side: Side = None) -> pd.Series:
         """cumulative_returns for all signals"""

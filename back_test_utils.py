@@ -850,7 +850,7 @@ def init_fc_signal_stoploss(
         )
 
         if len(data.signals.slices()) == 0:
-            print('no signals after stop loss generation')
+            # print(f'{symbol}: no signals after stop loss generation')
             # initial signal not valid. none left. skip
             continue
 

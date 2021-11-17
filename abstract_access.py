@@ -2,7 +2,6 @@ from abc import ABC, abstractmethod
 import typing as t
 from enum import Enum, auto
 
-from better_abc import abstract_attribute, ABCMeta
 from dataclasses import dataclass
 from strategy_utils import Side
 
@@ -82,9 +81,11 @@ class AbstractOrders(ABC):
     def _short_close(self):
         pass
 
+
 class ReSize(Enum):
     INC = auto()
     DEC = auto()
+
 
 class AbstractPosition(ABC):
     _raw_position: t.Dict
@@ -93,12 +94,13 @@ class AbstractPosition(ABC):
     _side: Side
     _stop_value = float
 
-    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None):
+    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None, data_row=None):
         self._symbol = symbol
         self._qty = qty
         self._side = Side(side)
         self._raw_position = raw_position
         self._stop_value = stop_value
+        self._data_row = data_row
         self._stop_type = None
 
     @property
@@ -118,9 +120,9 @@ class AbstractPosition(ABC):
         """
         assert new_qty >= 0, 'input quantity must be >= 0'
         order_spec = None
-        self._qty = new_qty
         size_delta = new_qty - self._qty
         if size_delta != 0:
+            self._qty = new_qty
             trade_qty = abs(size_delta)
             if size_delta > 0:
                 """increase position size"""
@@ -131,8 +133,11 @@ class AbstractPosition(ABC):
         return order_spec
 
     def init_stop_loss(self, stop_type) -> t.Union[t.Callable]:
-        self._stop_type = stop_type
-        return self._stop_order()
+        order = None
+        if self._qty > 0:
+            self._stop_type = stop_type
+            order = self._stop_order()
+        return order
 
     @abstractmethod
     def _stop_order(self) -> t.Callable:
@@ -147,7 +152,7 @@ class AbstractPosition(ABC):
         raise NotImplementedError
 
     def open_order(self) -> t.Union[t.Callable, None]:
-        return self._open(self.qty)
+        return self._open(self.qty) if self._qty > 0 else None
 
     def full_close(self):
         """fully close the position"""

@@ -7,7 +7,7 @@ import pandas as pd
 # import pd_accessors
 # import cbpro_access
 
-daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out_15m_200d_hp.xlsx')
+daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out.xlsx')
 
 
 def symbol_data_factory(*symbols: str) -> List[SymbolData]:
@@ -34,7 +34,7 @@ def main(min_score: float, load_pickle=True):
         except FileNotFoundError:
             pass
     if account_manager is None:
-        symbol_watchlist: pd.Series = daily_scan.symbol[daily_scan.score >= min_score]
+        symbol_watchlist: pd.Series = daily_scan.symbol[daily_scan.score > min_score]
         account_manager = AccountManager(
             tda_access.LocalClient,
             *symbol_data_factory(*symbol_watchlist.to_list())
@@ -44,6 +44,6 @@ def main(min_score: float, load_pickle=True):
 
 if __name__ == '__main__':
     print('start')
-    main(min_score=2.5, load_pickle=False)
+    main(min_score=1, load_pickle=False)
 
 

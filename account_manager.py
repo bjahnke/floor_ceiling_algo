@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from time import perf_counter
 import math
 import pickle
 from datetime import datetime, timedelta
@@ -138,8 +139,11 @@ class SymbolData:
         # new_data = yf_price_history(symbol=self._name)
         new_data = self.get_price_data()
         if new_data is None:
-            return tda_access.OrderData.no_signal()
-
+            return self._broker_client.init_position(
+                symbol='',
+                side=Side.CLOSE,
+                quantity=0
+            )
         try:
             analyzed_data, stats = fc_data_gen.init_fc_data(
                 base_symbol=self._name,
@@ -155,20 +159,33 @@ class SymbolData:
             if str(ex) not in self.error_log:
                 print(str(ex))
                 self.error_log.append(str(ex))
-            order_data = tda_access.OrderData.no_signal()
+            order_data = self._broker_client.init_position(
+                    symbol='',
+                    side=Side.CLOSE,
+                    quantity=0,
+                )
         else:
             self._cached_data = analyzed_data
             if analyzed_data.signals.status in self._valid_signals:
                 # assume the current bar is complete
-                current_bar = analyzed_data.iloc[-1]
+                current_bar = analyzed_data.iloc[-1].copy()
+                try:
+                    quantity = math.floor(current_bar.eqty_risk_lot * current_bar.signal * current_bar.size_remaining)
+                except ValueError:
+                    quantity = 0
                 order_data = self._broker_client.init_position(
                     symbol=self.name,
                     side=Side(analyzed_data.signals.current),
-                    qty=math.floor(current_bar.eqty_risk_lot * current_bar.signal * current_bar.size_remaining),
-                    stop_value=current_bar.trail_stop_to_cost
+                    quantity=quantity,
+                    stop_value=current_bar.stop_loss_base,
+                    data_row=current_bar
                 )
             else:
-                order_data = tda_access.OrderData.no_signal()
+                order_data = self._broker_client.init_position(
+                    symbol='',
+                    side=Side.CLOSE,
+                    quantity=0
+                )
 
             # back_test_utils.graph_regime_fc(
             #     ticker=self._name,
@@ -224,6 +241,8 @@ class SymbolManager:
             SymbolState.ORDER_PENDING: self.order_pending,
             SymbolState.ERROR: self.error
         }
+        self.entry_signals = []
+        self.exit_signals = []
 
     @property
     def entry_bar(self):
@@ -273,6 +292,7 @@ class SymbolManager:
                 self.order_id = None
                 self.stop_order_id = None
                 self._current_signal = None
+                self.exit_signals.append(current_signal)
                 new_trade_state = SymbolState.REST
         else:
             # upon transition of stop status, remove trailing stop and set stop at cost
@@ -294,6 +314,7 @@ class SymbolManager:
         # no order template corresponding to the current signal val means trade signal not given
         if order_spec is not None:
             self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
+            self.entry_signals.append(self._current_signal)
             # save order status for diagnostic purposes
             self._current_signal.status = OrderStatus(order_status)
             new_trade_state = SymbolState.ORDER_PENDING
@@ -363,7 +384,11 @@ class AccountManager:
         :return:
         """
         timeouts = []
+        # for simple loop time profile
+        min_time = None
+        max_time = None
         while True:
+            start = perf_counter()
             for symbol_manager in self.managed:
                 try:
                     symbol_manager.update_trade_state()
@@ -372,6 +397,13 @@ class AccountManager:
                     print(e)
                     if str(e) not in timeouts:
                         timeouts.append(e)
+            loop_time = perf_counter() - start
+            if min_time is max_time is None:
+                min_time = loop_time
+                max_time = loop_time
+            else:
+                min_time = min(min_time, loop_time)
+                max_time = max(max_time, loop_time)
 
     def to_pickle(self):
         with open(self.__class__.FILE_PATH, 'wb') as file_handler:

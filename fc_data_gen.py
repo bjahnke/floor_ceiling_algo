@@ -162,7 +162,7 @@ def init_fc_data(
         raise NoSignalsError(f'{base_symbol} No signals generated')
 
     # price_data[['close', 'b_close', 'signal', 'stop_loss']].plot()
-
+    price_data.signal = price_data.signal.fillna(0)
     return price_data, stats
 
 
