@@ -1,5 +1,5 @@
 from typing import List, Tuple, Union
-
+import operator as op
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -672,9 +672,26 @@ def stop_loss(
     4. return stop loss column
     """
     # stop loss calculation
+    long_stops = s_low.loc[s_low.notna()]
+    short_stops = s_high.loc[s_high.notna()]
+    stoploss = pd.Series(index=signal.index)
 
-    stoploss = (s_low.add(s_high, fill_value=0)).fillna(method='ffill')  # join all swings in 1 column
-    stoploss[~((signal.shift(1) == 0) & (signal != 0))] = np.nan  # keep 1st sl by signal
+    for signal_time, signal_value in pd.DataFrame(signal).signals.starts.signal.items():
+        if signal_value == 1:
+            prior_stops = long_stops.loc[:signal_time].to_list()
+            opr = op.lt
+        else:
+            prior_stops = short_stops.loc[:signal_time].to_list()
+            opr = op.gt
+
+        entry = close.loc[signal_time]
+        i = len(prior_stops) - 1
+        while i >= 0:
+            if opr(prior_stops[i], entry):
+                stoploss.loc[signal_time] = prior_stops[i]
+                break
+            i -= 1
+
     stoploss = stoploss.fillna(method='ffill')  # extend first value with fillna
 
     # Bull: lowest close, Bear: highest close
@@ -812,8 +829,9 @@ def init_fc_signal_stoploss(
             regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma
         )
 
-        if len(data.signals.slices()) == 0:
+        if data.signals.count == 0:
             # no signals found, skip
+            print('no initial signal found')
             continue
 
         # crop out first signal if data set does not capture where the first cross occurred
@@ -822,16 +840,18 @@ def init_fc_signal_stoploss(
         try:
             first_cross_date = ma_crosses.index[0]
         except IndexError:
-            print(f'{symbol}: ma never crosses in data set')
-            continue
+            if data.signals.count == 1:
+                print(f'{symbol}: ma never crosses in data set')
+                continue
+        else:
+            first_signal = data.signals.slices()[0]
+            if first_signal.index[0] < first_cross_date:
+                data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = 0
 
-        first_signal = data.signals.slices()[0]
-        if first_signal.index[0] < first_cross_date:
-            data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = 0
-
-        if len(data.signals.slices()) == 0:
-            # initial signal not valid. none left. skip
-            continue
+            if data.signals.count == 0:
+                # initial signal not valid. none left. skip
+                print('no signal after first removed')
+                continue
 
         # stop loss (relative)
         data[stop_loss_col] = stop_loss(
@@ -849,8 +869,8 @@ def init_fc_signal_stoploss(
             s_high=data['sw_b_high']
         )
 
-        if len(data.signals.slices()) == 0:
-            # print(f'{symbol}: no signals after stop loss generation')
+        if data.signals.count == 0:
+            print(f'{symbol}: no signals after stop loss generation')
             # initial signal not valid. none left. skip
             continue
 
@@ -863,7 +883,7 @@ def init_fc_signal_stoploss(
             trail_stop=data.trail_stop
         )
         data.signal = data.signal.fillna(0)
-        if len(data.signals.slices()) == 0:
+        if data.signals.count == 0:
             print('no signals after trail stop generation')
             # initial signal not valid. none left. skip
             continue

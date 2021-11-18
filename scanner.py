@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 import schedule
 import time
 
-# account_info = tda_access.LocalClient.account_info()
+account_info = tda_access.LocalClient.account_info()
 
 
 @dataclass
@@ -114,7 +114,7 @@ def fc_scan_symbol(
     price_data, stats = fc_data_gen.init_fc_data(
         base_symbol=symbol,
         price_data=price_data,
-        equity=5000
+        equity=account_info.equity
     )
 
     last_signal = price_data.signals.slices()[-1]

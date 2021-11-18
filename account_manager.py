@@ -116,17 +116,17 @@ class SymbolData:
     def cached_data(self):
         return self._cached_data
 
-    def get_price_data(self):
+    def get_price_data(self) -> t.Union[pd.DataFrame, None]:
+        """
+        get price history, return none if fault occurs
+        """
         # new_data = yf_price_history(symbol=self._name)
         try:
             new_data = self._broker_client.price_history(
                 symbol=self._name,
                 freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
             )
-            self._cached_data = new_data
-            # print(f'{self._name}^ {perf_counter()}')
         except (tda_access.EmptyDataError, tda_access.FaultReceivedError):
-            # new_data = self._cached_data
             new_data = None
 
         if self._bench_symbol is not None:
@@ -135,77 +135,65 @@ class SymbolData:
 
         return new_data
 
-    def get_current_signal(self) -> abstract_access.AbstractPosition:
+    def get_current_signal(self) -> t.Union[abstract_access.AbstractPosition, None]:
         # new_data = yf_price_history(symbol=self._name)
         new_data = self.get_price_data()
-        if new_data is None:
-            return self._broker_client.init_position(
-                symbol='',
-                side=Side.CLOSE,
-                quantity=0
-            )
-        try:
-            analyzed_data, stats = fc_data_gen.init_fc_data(
-                base_symbol=self._name,
-                price_data=new_data,
-                equity=self._account_data.equity,
-                st_list=self._short_ma,
-                mt_list=self._mid_ma,
-                # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
-            )
-        except (ValueError, TypeError):
-            raise
-        except Exception as ex:
-            if str(ex) not in self.error_log:
-                print(str(ex))
-                self.error_log.append(str(ex))
-            order_data = self._broker_client.init_position(
-                    symbol='',
-                    side=Side.CLOSE,
-                    quantity=0,
+        order_data = None
+        if new_data is not None:
+            try:
+                analyzed_data, stats = fc_data_gen.init_fc_data(
+                    base_symbol=self._name,
+                    price_data=new_data,
+                    equity=self._account_data.equity,
+                    st_list=self._short_ma,
+                    mt_list=self._mid_ma,
+                    # TODO pass in broker to symbol manager. req account_info().equity in AbstractClient.AccountInfo
                 )
-        else:
-            self._cached_data = analyzed_data
-            if analyzed_data.signals.status in self._valid_signals:
-                # assume the current bar is complete
-                current_bar = analyzed_data.iloc[-1].copy()
-                try:
-                    quantity = math.floor(current_bar.eqty_risk_lot * current_bar.signal * current_bar.size_remaining)
-                except ValueError:
-                    quantity = 0
-                order_data = self._broker_client.init_position(
-                    symbol=self.name,
-                    side=Side(analyzed_data.signals.current),
-                    quantity=quantity,
-                    stop_value=current_bar.stop_loss_base,
-                    data_row=current_bar
-                )
+            except (ValueError, TypeError):
+                raise
+            except Exception as ex:
+                if str(ex) not in self.error_log:
+                    print(str(ex))
+                    self.error_log.append(str(ex))
             else:
-                order_data = self._broker_client.init_position(
-                    symbol='',
-                    side=Side.CLOSE,
-                    quantity=0
-                )
+                self._cached_data = analyzed_data
 
-            # back_test_utils.graph_regime_fc(
-            #     ticker=self._name,
-            #     df=analyzed_data,
-            #     y='close',
-            #     th=1.5,
-            #     sl='sw_low',
-            #     sh='sw_high',
-            #     clg='ceiling',
-            #     flr='floor',
-            #     st=analyzed_data['st_ma'],
-            #     mt=analyzed_data['mt_ma'],
-            #     bs='regime_change',
-            #     rg='regime_floorceiling',
-            #     bo=200
-            # )
-            # try:
-            #     plt.savefig(rf'C:\Users\temp\OneDrive\algo_data\png\live_trade\{self._name}.png', bbox_inches='tight')
-            # except Exception as e:
-            #     print(e)
+        if self._cached_data is not None:
+            current_bar = self._cached_data.iloc[-1].copy()
+            try:
+                quantity = math.floor(current_bar.eqty_risk_lot * current_bar.signal * current_bar.size_remaining)
+            except ValueError:
+                quantity = 0
+                # assume the current bar is complete
+            except AttributeError:
+                print('here')
+            order_data = self._broker_client.init_position(
+                symbol=self.name,
+                side=Side(self._cached_data.signals.current),
+                quantity=quantity,
+                stop_value=current_bar.stop_loss_base,
+                data_row=current_bar
+            )
+
+        # back_test_utils.graph_regime_fc(
+        #     ticker=self._name,
+        #     df=analyzed_data,
+        #     y='close',
+        #     th=1.5,
+        #     sl='sw_low',
+        #     sh='sw_high',
+        #     clg='ceiling',
+        #     flr='floor',
+        #     st=analyzed_data['st_ma'],
+        #     mt=analyzed_data['mt_ma'],
+        #     bs='regime_change',
+        #     rg='regime_floorceiling',
+        #     bo=200
+        # )
+        # try:
+        #     plt.savefig(rf'C:\Users\temp\OneDrive\algo_data\png\live_trade\{self._name}.png', bbox_inches='tight')
+        # except Exception as e:
+        #     print(e)
 
         return order_data
 
@@ -223,6 +211,16 @@ class SymbolManager:
     trade_state: SymbolState
     order_id: t.Union[int, None]
     _status: str
+
+    _VALID_ENTRY = [
+        SignalStatus.NEW_SHORT,
+        SignalStatus.NEW_LONG,
+    ]
+
+    _VALID_EXIT = [
+        SignalStatus.CLOSE,
+        SignalStatus.NEW_CLOSE
+    ]
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
@@ -282,8 +280,7 @@ class SymbolManager:
         if position is None:
             # if no position found for this symbol, stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
-        # TODO elif new_order is not None and current_signal.direction != position.side:
-        elif (new_order := position.set_size(current_signal.qty)) is not None:
+        elif current_signal is not None and (new_order := position.set_size(current_signal.qty)) is not None:
             # the signal has ended per the defined rules, close the remainder of the position
             self.order_id, order_status = self._broker_client.place_order_spec(new_order)
             if position.qty == 0:
@@ -294,30 +291,31 @@ class SymbolManager:
                 self._current_signal = None
                 self.exit_signals.append(current_signal)
                 new_trade_state = SymbolState.REST
-        else:
-            # upon transition of stop status, remove trailing stop and set stop at cost
-            # (or rather, the close price of entry bar)
-            stop_status = self.symbol_data.cached_data.stop_status.iloc[-1]
-            stop_status_prev = self.symbol_data.cached_data.stop_status.iloc[-2]
-            if stop_status == 1 and stop_status_prev == 0:
-                self._broker_client.cancel_order(self.stop_order_id)
-                self.stop_order_id = self._broker_client.place_order_spec(
-                    current_signal.init_stop_loss(OrderType.STOP)
-                )
+
+        # upon transition of stop status, remove trailing stop and set stop at cost
+        # (or rather, the close price of entry bar)
+        stop_status = self.symbol_data.cached_data.stop_status.iloc[-1]
+        stop_status_prev = self.symbol_data.cached_data.stop_status.iloc[-2]
+        if stop_status == 1 and stop_status_prev == 0:
+            self._broker_client.cancel_order(self.stop_order_id)
+            self.stop_order_id = self._broker_client.place_order_spec(
+                current_signal.init_stop_loss(OrderType.STOP)
+            )
 
         return new_trade_state
 
     def rest(self) -> SymbolState:
         new_trade_state = SymbolState.REST
         self._current_signal = self.symbol_data.get_current_signal()
-        order_spec = self._current_signal.open_order()
-        # no order template corresponding to the current signal val means trade signal not given
-        if order_spec is not None:
-            self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
-            self.entry_signals.append(self._current_signal)
-            # save order status for diagnostic purposes
-            self._current_signal.status = OrderStatus(order_status)
-            new_trade_state = SymbolState.ORDER_PENDING
+        if self._current_signal is not None:
+            order_spec = self._current_signal.open_order()
+            # no order template corresponding to the current signal val means trade signal not given
+            if self.symbol_data.cached_data.signals.status in SymbolManager._VALID_ENTRY and order_spec is not None:
+                self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
+                self.entry_signals.append(self._current_signal)
+                # save order status for diagnostic purposes
+                self._current_signal.status = OrderStatus(order_status)
+                new_trade_state = SymbolState.ORDER_PENDING
         return new_trade_state
 
     def order_pending(self) -> SymbolState:

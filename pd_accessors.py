@@ -126,7 +126,11 @@ class Signals(DfAccessorBase):
     @property
     def ends(self) -> pd.DataFrame:
         """transition from non-nan to nan means signal has ended"""
-        return self._obj[(self._obj.signal.shift(-1) == 0) & (self._obj.signal != 0)]
+        return self._obj[(self._obj.signal.shift(-1).fillna(0) == 0) & (self._obj.signal != 0)]
+
+    @property
+    def count(self):
+        return len(self._obj.signals.starts.index)
 
     def slices(
         self,

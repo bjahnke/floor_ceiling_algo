@@ -513,6 +513,6 @@ class LocalClient(metaclass=_LocalClientMeta):
 
     @classmethod
     def init_position(cls, symbol, quantity, side, stop_value=None, data_row=None) -> Position:
-        return Position(symbol, quantity, side, stop_value, data_row=None)
+        return Position(symbol, quantity, side, stop_value=stop_value, data_row=None)
 
 
