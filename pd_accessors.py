@@ -9,6 +9,7 @@ from strategy_utils import Side, SignalStatus
 import trade_stats
 import tda_access
 from datetime import datetime, timedelta
+import operator as op
 
 
 def get_minimum_freq(date_times: pd.Index) -> Timedelta:
@@ -108,45 +109,6 @@ class Swings(DfAccessorBase):
         super().__init__(df)
 
 
-@pd.api.extensions.register_dataframe_accessor('fc')
-class FcData(DfAccessorBase):
-    mandatory_cols = [
-        'close',
-        'b_close',
-        'r_return_1d',
-        'return_1d',
-        'regime_floorceiling',
-        'sw_low',
-        'sw_high',
-        'signal',
-        'stop_loss',
-        'score',
-        'trades',
-        'r_perf',
-        'csr',
-        'geo_GE',
-        'sqn',
-        'regime_change',
-        'equal_weight_lot',
-        'eqty_risk',
-        'equity_at_risk',
-        'equal_weight',
-    ]
-
-    def __init__(self, df: pd.DataFrame):
-        super().__init__(df)
-
-    @property
-    def signal_starts(self):
-        """get all rows where a signal is generated"""
-        return self._obj[self._obj.signal.shift(-1).isnull() & self._obj.signal.notnull()]
-
-    @property
-    def position_sizes(self):
-        """"""
-        return None
-
-
 @pd.api.extensions.register_dataframe_accessor('signals')
 class Signals(DfAccessorBase):
     mandatory_cols = [
@@ -159,12 +121,12 @@ class Signals(DfAccessorBase):
     @property
     def starts(self) -> pd.DataFrame:
         """transition from nan to non-nan means signal has started"""
-        return self._obj[self._obj.signal.shift(1).isnull() & self._obj.signal.notnull()]
+        return self._obj[(self._obj.signal.shift(1) == 0) & (self._obj.signal != 0)]
 
     @property
     def ends(self) -> pd.DataFrame:
         """transition from non-nan to nan means signal has ended"""
-        return self._obj[self._obj.signal.shift(-1).isnull() & self._obj.signal.notnull()]
+        return self._obj[(self._obj.signal.shift(-1) == 0) & (self._obj.signal != 0)]
 
     def slices(
         self,
@@ -251,7 +213,7 @@ class Signals(DfAccessorBase):
         target_group = []
         for signal_data in self._obj.signals.slices():
             size_percents = pd.Series(data=1, index=signal_data.index)
-            initial_stop_price = signal_data[stop_loss_col][0]
+            initial_stop_price = signal_data[stop_loss_col].iat[0]
             entry_price = signal_data.close[0]
             signal = signal_data.signal[0]
 
@@ -407,11 +369,11 @@ class StopLoss(DfAccessorBase):
                 # initial high is the price we entered (approximately)
                 extremes = signal_data.high.copy()
                 extremes.iat[0] = entry_price
-                cum_extreme = signal_data.high.cummax()
+                cum_extreme = extremes.cummax()
             else:
                 extremes = signal_data.low.copy()
                 extremes.iat[0] = entry_price
-                cum_extreme = signal_data.low.cummin()
+                cum_extreme = extremes.cummin()
 
             # shift back to
             cum_delta_from_entry = (cum_extreme - entry_price)
@@ -422,11 +384,12 @@ class StopLoss(DfAccessorBase):
 
         return pd.concat(trail_stops)
 
-    def trail_to_cost(self, trail_stop: pd.Series) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
+    def trail_to_cost(self, trail_stop: pd.Series, undefined_trips=False) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
         """
         TODO does this need to be vectorized?
         TODO test stop loss generator
         trailing stop loss that is limited to entry price
+        :param undefined_trips: see notes in trail_stop_to_cost_single()
         :param trail_stop:
         :return:
         """
@@ -436,38 +399,11 @@ class StopLoss(DfAccessorBase):
         trail_stops = []
         cropped_signals = []
         stop_status = []
+
         for signal_data in self._obj.signals.slices():
-            signal = signal_data.signal.copy()
-            signal_dir = signal.iloc[-1]
-            entry_price = signal_data.close.iloc[0]
-            trail_stop_at_cost = signal_data.trail_stop.copy()
-
-            if signal_dir == 1:
-                def crosses_cost():
-                    return trail_stop_at_cost >= entry_price
-
-                extreme = signal_data.low.copy()
-                trip_stop_params = {
-                    'higher': extreme,
-                    'lower': trail_stop_at_cost
-                }
-            else:
-                def crosses_cost():
-                    return trail_stop_at_cost <= entry_price
-
-                extreme = signal_data.high.copy()
-                trip_stop_params = {
-                    'higher': trail_stop_at_cost,
-                    'lower': extreme
-                }
-            where_crosses_cost = crosses_cost()
-            extreme.iat[0] = entry_price
-            trail_stop_at_cost.loc[where_crosses_cost] = entry_price
-            where_stop_trips = trips_price(**trip_stop_params)
-            trail_stop_at_cost.loc[where_stop_trips] = np.nan
-            signal.loc[where_stop_trips] = np.nan
-            where_crosses_cost.loc[where_stop_trips] = np.nan
-
+            (trail_stop_at_cost,
+             signal,
+             where_crosses_cost) = signal_data.stop_losses.trail_stop_to_cost_single(undefined_trips=undefined_trips)
             trail_stops.append(trail_stop_at_cost)
             cropped_signals.append(signal)
             stop_status.append(where_crosses_cost)
@@ -477,6 +413,50 @@ class StopLoss(DfAccessorBase):
             pd.concat(cropped_signals),
             pd.concat(stop_status)
         )
+
+    def trail_stop_to_cost_single(self, undefined_trips=False) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
+        """
+        assumed that given dataframe is 1 signal
+
+        Regarding undefined_trips flag:
+        # trailing stop definitely triggered if extreme trips previous trailing stop value.
+        # from back testing prospective, it is undefined whether trail stop will trigger
+        # if extreme trips current trailing stop but does not trip previous trailing stop.
+        Therefore, calculating both for back tests will at least help us estimate of
+        best/worst case performance. During live trading, we want to keep undefined_trips
+        off
+        """
+        signal = self._obj.signal.copy()
+        signal_dir = signal.iloc[-1]
+        entry_price = self._obj.close.iloc[0]
+        trail_stop_at_cost = self._obj.trail_stop.copy()
+
+        if signal_dir == 1:
+            cost_opr = op.ge
+            stop_opr = op.le
+            extreme = self._obj.low.copy()
+        else:
+            cost_opr = op.le
+            stop_opr = op.ge
+            extreme = self._obj.high.copy()
+
+        where_crosses_cost = cost_opr(trail_stop_at_cost, entry_price)
+        trail_stop_at_cost.loc[where_crosses_cost] = entry_price
+
+        extreme.iat[0] = entry_price
+
+        if undefined_trips:
+            trail_stop_values = trail_stop_at_cost
+        else:
+            trail_stop_values = trail_stop_at_cost.shift(1)
+
+        trips_trail_stop_prev = stop_opr(extreme - trail_stop_values, 0).cummax()
+
+        trail_stop_at_cost.loc[trips_trail_stop_prev] = np.nan
+        signal.loc[trips_trail_stop_prev] = Side.CLOSE.value
+        where_crosses_cost.loc[trips_trail_stop_prev] = np.nan
+
+        return trail_stop_at_cost, signal, where_crosses_cost
 
     def local_stop(self):
         s_low = self._obj.sw_low
@@ -500,6 +480,23 @@ class StopLoss(DfAccessorBase):
         sl_sign = signal * np.sign(sl_delta)
         signal[sl_sign == -1] = np.nan
         return stoploss
+
+    def undefined_stop_triggers(self):
+        """
+        TODO
+            find all instances where (in the same bar) the low may
+            push the stop loss enough where the high could trigger an exit.
+            For simulations, the behavior in this case is undefined: the
+            stop loss may have triggered or not triggered depending on
+            the order flow, which we do not have.
+        :return:
+        """
+        for signal_data in self._obj.signal.slices():
+            pass
+
+
+
+
 
 
 def trips_price(higher, lower):

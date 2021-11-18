@@ -644,7 +644,7 @@ def signal_fcstmt(regime: pd.Series, st: pd.Series, mt: pd.Series) -> pd.Series:
     # Calculate the sign of the stmt delta
     stmt_sign = np.sign((st - mt).fillna(0))
     # Calculate entries/exits based on regime and stmt delta
-    active = np.where(np.sign(regime * stmt_sign) == 1, 1, np.nan)
+    active = np.where(np.sign(regime * stmt_sign) == 1, 1, 0)
     return regime * active
 
 
@@ -674,7 +674,7 @@ def stop_loss(
     # stop loss calculation
 
     stoploss = (s_low.add(s_high, fill_value=0)).fillna(method='ffill')  # join all swings in 1 column
-    stoploss[~((np.isnan(signal.shift(1))) & (~np.isnan(signal)))] = np.nan  # keep 1st sl by signal
+    stoploss[~((signal.shift(1) == 0) & (signal != 0))] = np.nan  # keep 1st sl by signal
     stoploss = stoploss.fillna(method='ffill')  # extend first value with fillna
 
     # Bull: lowest close, Bear: highest close
@@ -685,7 +685,7 @@ def stop_loss(
     # reset signal where stop loss is breached
     sl_delta = (cum_close - stoploss).fillna(0)
     sl_sign = signal * np.sign(sl_delta)
-    signal[sl_sign == -1] = np.nan
+    signal[sl_sign == -1] = 0
     return stoploss
 
 
@@ -822,12 +822,12 @@ def init_fc_signal_stoploss(
         try:
             first_cross_date = ma_crosses.index[0]
         except IndexError:
-            print('ma never crosses in data set')
+            print(f'{symbol}: ma never crosses in data set')
             continue
 
         first_signal = data.signals.slices()[0]
         if first_signal.index[0] < first_cross_date:
-            data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = np.nan
+            data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = 0
 
         if len(data.signals.slices()) == 0:
             # initial signal not valid. none left. skip
@@ -862,7 +862,7 @@ def init_fc_signal_stoploss(
         ) = data.stop_losses.trail_to_cost(
             trail_stop=data.trail_stop
         )
-
+        data.signal = data.signal.fillna(0)
         if len(data.signals.slices()) == 0:
             print('no signals after trail stop generation')
             # initial signal not valid. none left. skip
