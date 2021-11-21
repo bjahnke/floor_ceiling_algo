@@ -6,6 +6,8 @@ analyzing order/balance/position history
 TODO order history?
 """
 from __future__ import annotations
+
+import asyncio
 import datetime
 
 import authlib
@@ -15,7 +17,6 @@ from tda.orders.generic import OrderBuilder
 
 import abstract_access
 import credentials
-import asyncio
 
 import tda
 import selenium.webdriver
@@ -42,10 +43,16 @@ def configure_stream(
         stream_client: tda.streaming.StreamClient,
         add_book_handler: t.Callable,
         book_subs,
-        handlers: t.List[t.Callable],
-
+        symbols: t.List[str],
 ):
-    async def _initiate_stream(*symbols: str):
+    """
+    :param stream_client:
+    :param add_book_handler:
+    :param book_subs:
+    :param symbols:
+    :return:
+    """
+    async def _initiate_stream(handlers: t.List[t.Callable[[t.Dict], None]]):
         await stream_client.login()
         await stream_client.quality_of_service(tda.streaming.StreamClient.QOSLevel.EXPRESS)
 
@@ -388,33 +395,24 @@ class _LocalClientMeta(type):
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
 
-
-    def init_listed_stream(cls, output_file_path: str):
+    def init_listed_stream(cls, symbols: t.List[str]):
         """
         stream price data of the given symbols every 500ms
         use this code to execute function: asyncio.run(LocalClient.initiate_stream(<enter symbols here>)
         """
-        def msg_handler(msg):
-            json.dumps(msg, indent=4)
-
         return configure_stream(
             stream_client=cls.STREAM_CLIENT,
             add_book_handler=cls.STREAM_CLIENT.add_listed_book_handler,
-            handlers=[
-                lambda msg: cls._stream_data.append(json.dumps(msg, indent=4))
-            ],
+            symbols=symbols,
             book_subs=cls.STREAM_CLIENT.listed_book_subs
-
         )
 
-    def init_futures_stream(cls):
+    def init_futures_stream(cls, symbols: t.List[str]) -> t.Callable:
+        # TODO add handler converting stream to ohlc bars + writes to csv
         return configure_stream(
             stream_client=cls.STREAM_CLIENT,
             add_book_handler=cls.STREAM_CLIENT.add_chart_futures_handler,
-            handlers=[
-                lambda msg: cls._stream_data.append(json.dumps(msg, indent=4)),
-                lambda msg: print(json.dumps(msg, indent=4))
-            ],
+            symbols=symbols,
             book_subs=cls.STREAM_CLIENT.chart_futures_subs
         )
 
@@ -514,5 +512,25 @@ class LocalClient(metaclass=_LocalClientMeta):
     @classmethod
     def init_position(cls, symbol, quantity, side, stop_value=None, data_row=None) -> Position:
         return Position(symbol, quantity, side, stop_value=stop_value, data_row=None)
+
+
+class TdTickerStream(abstract_access.AbstractTickerStream):
+    def run_stream(self):
+        asyncio.run(self._stream([self.handle_stream]))
+
+    @staticmethod
+    def get_symbol(msg) -> str:
+        return msg['key']
+
+
+class TdStreamParser(abstract_access.AbstractStreamParser):
+    def retrieve_ohlc(self, data: dict):
+        """get prices from ticker stream, expects content to be passed in"""
+        return (
+            data['OPEN_PRICE'],
+            data['HIGH_PRICE'],
+            data['LOW_PRICE'],
+            data['CLOSE_PRICE'],
+        )
 
 

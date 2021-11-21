@@ -1,14 +1,19 @@
+import json
 from abc import ABC, abstractmethod
 import typing as t
+from datetime import datetime, timedelta
 from enum import Enum, auto
 
 from dataclasses import dataclass
 from strategy_utils import Side
+import pandas as pd
+import pd_accessors
 
 @dataclass
 class Condition:
     case: t.Callable[[t.Any], bool]
     result: t.Any
+
 
 Condition(
     case=lambda x: x > 0,
@@ -159,7 +164,168 @@ class AbstractPosition(ABC):
         self._close(quantity=self._qty)
 
 
+OHLC_VALUES = t.Tuple[float, float, float, float]
 
+
+class CsvPermissionError(Exception):
+    """PermissionError raised when attempting to read/write from price history csv"""
+
+
+class LiveQuotePermissionError(Exception):
+    """PermissionError raised when attempting to read/write from price history csv"""
+
+
+class Bar:
+    def __init__(self):
+        self._open = None
+        self._high = None
+        self._low = None
+        self._close = None
+
+    def init_new(self, o, h, l, c):
+        self._open = o
+        self._high = h
+        self._low = l
+        self._close = c
+
+    def update(self, o, h, l, c):
+        try:
+            self._low = min(self._low, l)
+            self._high = max(self._high, h)
+            self._close = c
+        except TypeError:
+            self.init_new(o, h, l, c)
+
+    def get_ohlc_values(self) -> OHLC_VALUES:
+        return self._open, self._high, self._low, self._close
+
+    def get_ohlc(self):
+        return {
+            'open': self._open,
+            'high': self._high,
+            'low': self._low,
+            'close': self._close
+        }
+
+
+class AbstractStreamParser(ABC):
+    _prices: OHLC_VALUES
+
+    def __init__(
+        self,
+        symbol,
+        live_quote_file_path=None,
+        price_history_file_path=None,
+        interval: int = 1
+    ):
+        self._live_quote_file_path = live_quote_file_path
+        self._price_history_file_path = price_history_file_path
+
+        self._symbol = symbol
+        self._interval = interval
+        self._bar_data = Bar()
+        self._price_data = pd.DataFrame().price_data.init()
+        self._prices = None
+        self._prev_sequence = None
+
+    @abstractmethod
+    def retrieve_ohlc(self, data: dict) -> OHLC_VALUES:
+        """get prices from ticker stream"""
+        raise NotImplementedError
+
+    def update_ohlc(self, data: dict):
+        """
+        given data for a specific symbol, update the ohlc values
+        for given interval
+        :param data:
+        :return:
+        """
+        self._prices = self.retrieve_ohlc(data)
+        tm = datetime.utcnow()
+        if tm.minute % self._interval == 0 and tm.second < 5:
+            self._add_new_row()
+            update_method = self._bar_data.init_new
+        else:
+            update_method = self._bar_data.update
+
+        update_method(*self._prices)
+
+    def _add_new_row(self):
+        """add new bar to price data"""
+        now = datetime.utcnow()
+        lag = timedelta(seconds=now.second, microseconds=now.microsecond)
+        tm = now - lag  # round out ms avoids appending many rows within the same second
+        if tm not in self._price_data.index:
+            print(f'{self._symbol} {tm} (lag): {lag}')
+            row_data = (self._symbol, ) + self._bar_data.get_ohlc_values()
+            new_row = pd.DataFrame(
+                [row_data],
+                columns=self._price_data.columns.to_list(),
+                index=[tm]
+            )
+            new_row.to_csv(self._price_history_file_path, mode='a', header=False)
+            self._price_data = pd.concat([self._price_data, new_row])
+
+    def get_ohlc(self) -> t.Dict:
+        res = self._bar_data.get_ohlc()
+        res['symbol'] = self._symbol
+        return res
+
+
+class AbstractTickerStream:
+    stream_parser: t.Type[AbstractStreamParser]
+
+    def __init__(
+        self,
+        stream,
+        stream_parser,
+        quote_file_path: str,
+        history_file_path: str,
+        interval: int = 1
+    ):
+        self._stream = stream
+        self._stream_parser = stream_parser
+        self._quote_file_path = quote_file_path
+        self._history_file_path = history_file_path
+        self._interval = interval
+        self._stream_parsers = {}
+        self._live_data_out = {}
+        self._price_data = pd.DataFrame().price_data.init()
+        self._price_data.to_csv(self._history_file_path)
+
+        self._permission_error_count = 0
+
+    @abstractmethod
+    def run_stream(self):
+        raise NotImplementedError
+
+    @staticmethod
+    @abstractmethod
+    def get_symbol(msg) -> str:
+        raise NotImplementedError
+
+    def handle_stream(self, msg):
+        """handles the messages, translates to ohlc values, outputs to json and csv"""
+        # start_time = time()
+        try:
+            # TODO get symbol via interface
+            symbol = self.__class__.get_symbol(msg)
+            if symbol not in self._stream_parsers:
+                self._stream_parsers[symbol] = self._stream_parser(
+                    symbol,
+                    interval=self._interval,
+                )
+        except KeyError:
+            pass
+        else:
+            self._stream_parsers[symbol].update_ohlc(msg)
+            current_ohlc = self._stream_parsers[symbol].get_ohlc()
+            self._live_data_out[symbol] = current_ohlc
+            try:
+                with open(self._quote_file_path, 'w') as live_quote_file:
+                    json.dump(self._live_data_out, live_quote_file, indent=4)
+            except PermissionError:
+                print(f'Warning JSON permission error')
 
 
 
