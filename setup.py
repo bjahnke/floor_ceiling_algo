@@ -10,6 +10,9 @@ setup(
     author_email='',
     description='',
     install_requires=[
+        'openpyxl',
+        'websocket-client',
+        'better-abc',
         'dotmap',
         'numpy',
         'matplotlib',
@@ -20,6 +23,7 @@ setup(
         'tda-api',
         'yfinance',
         'schedule',
-        'w3rw @ git+https://github.com/teleprint-me/w3rw.git#egg=w3rw'
+        'w3rw @ git+https://github.com/teleprint-me/w3rw.git#egg=w3rw',
+        'coinbase-pro @ git+https://github.com/teleprint-me/coinbase-pro.git#egg=coinbase-pro'
     ]
 )

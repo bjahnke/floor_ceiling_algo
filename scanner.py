@@ -330,7 +330,7 @@ def main(
     symbols: t.List[str],
     fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
     scan_out_info: ScanOutInfo,
-    freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
+    freq_range=tdargs.freqs.day.range(tdargs.periods.y5),
     bench: str = None,
     close_range: Range = Range(),
     volume_range: Range = Range(),
@@ -420,11 +420,11 @@ def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
     return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
 
 
-def yf_price_history(symbol: str, freq_range=None, period='3mo', interval='1h'):
+def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
     try:
         price_data: pd.DataFrame = yf.Ticker(symbol).history(
-            # period=datetime.now() - timedelta(days=58), interval='15m'
-            period=period, interval=interval
+            start=freq_range[0], end=freq_range[1], interval=freq_range[2]
+            # period=period, interval=interval
         )
     except json.decoder.JSONDecodeError:
         return pd.DataFrame()
