@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from strategy_utils import Side
 import pandas as pd
 import pd_accessors
+import asyncio
 
 @dataclass
 class Condition:
@@ -165,6 +166,7 @@ class AbstractPosition(ABC):
 
 
 OHLC_VALUES = t.Tuple[float, float, float, float]
+DATA_FETCH_FUNCTION = t.Callable[[str, int, int, str], t.Tuple[pd.DataFrame, t.Any]]
 
 
 class CsvPermissionError(Exception):
@@ -208,91 +210,160 @@ class Bar:
         }
 
 
+class StreamState(Enum):
+    INITIAL = auto()
+    WAIT = auto()
+    FILL_GAP = auto()
+    NORMAL_UPDATE = auto()
+    ADD_NEW_BAR = auto()
+
+
 class AbstractStreamParser(ABC):
-    _prices: OHLC_VALUES
+    _quoted_prices: OHLC_VALUES
+    _price_data: pd.DataFrame
+    _fetch_price_data: DATA_FETCH_FUNCTION
 
     def __init__(
         self,
         symbol,
+        fetch_price_data: DATA_FETCH_FUNCTION,
         live_quote_file_path=None,
-        price_history_file_path=None,
-        interval: int = 1
+        history_path='',
+        interval: int = 1,
     ):
+        self._stream_state = StreamState.INITIAL
+        self._stream_init_time = None
+        self._target_fetch_time = None
         self._live_quote_file_path = live_quote_file_path
-        self._price_history_file_path = price_history_file_path
-
         self._symbol = symbol
+        self._fetch_price_data = fetch_price_data
+        self._history_file_path = self.__class__._init_price_history_path(history_path, symbol)
         self._interval = interval
         self._bar_data = Bar()
-        self._price_data = pd.DataFrame().price_data.init()
-        self._prices = None
+        self._price_data = None
+        self._quoted_prices = None
         self._prev_sequence = None
+
+        self._state_table = {
+            StreamState.INITIAL: self._init_stream_data,
+            StreamState.FILL_GAP: self._allow_fill_data_gap,
+            StreamState.NORMAL_UPDATE: self._do_nothing
+        }
 
     @abstractmethod
     def retrieve_ohlc(self, data: dict) -> OHLC_VALUES:
         """get prices from ticker stream"""
         raise NotImplementedError
 
-    def update_ohlc(self, data: dict):
+    @property
+    def history_file_path(self):
+        return
+
+    def fetch_price_data(self) -> t.Tuple[pd.DataFrame, t.Any]:
+        """x days worth of minute data by the give interval"""
+        x = 10
+        return self._fetch_price_data(self._symbol, self._interval, x, 'm')
+
+    def update_ohlc_state(self, data: t.Dict):
+        self._quoted_prices = self.retrieve_ohlc(data)
+        time_stamp = datetime.utcnow()
+
+        self._stream_state = self._state_table[self._stream_state](time_stamp)
+
+        self.update_ohlc(self._quoted_prices, time_stamp)
+
+    def _init_stream_data(self, time_stamp) -> StreamState:
+        """
+        make an initial price history call,
+        calculate the amount of time needed for the
+        stream to run to close the data gap between
+        price history end and stream start
+        """
+        self._stream_init_time = time_stamp
+        self._price_data, delay = self.fetch_price_data()
+        next_bar_time = (
+            self._stream_init_time.replace(second=0, microsecond=0) +
+            timedelta(minutes=self._stream_init_time.minute % self._interval)
+        )
+        self._target_fetch_time = next_bar_time + delay
+        return StreamState.FILL_GAP
+
+    def _allow_fill_data_gap(self, time_stamp) -> StreamState:
+        """
+        wait for current time to exceed target time,
+        get price history again. Now there is no longer a data gap
+        """
+        next_state = StreamState.FILL_GAP
+        if time_stamp > self._target_fetch_time:
+            self._price_data, _ = self.fetch_price_data()
+            self._price_data.to_csv(self._history_file_path)
+            next_state = StreamState.NORMAL_UPDATE
+        return next_state
+
+    def _do_nothing(self, time_stamp):
+        return self._stream_state
+
+    def update_ohlc(self, quoted_prices: OHLC_VALUES, time_stamp):
         """
         given data for a specific symbol, update the ohlc values
         for given interval
+        :param time_stamp:
         :param data:
         :return:
         """
-        self._prices = self.retrieve_ohlc(data)
-        tm = datetime.utcnow()
-        if tm.minute % self._interval == 0 and tm.second < 5:
-            self._add_new_row()
+        if time_stamp.minute % self._interval == 0:
+            if self._stream_state == StreamState.NORMAL_UPDATE:
+                self._add_new_row(time_stamp)
             update_method = self._bar_data.init_new
         else:
             update_method = self._bar_data.update
 
-        update_method(*self._prices)
+        update_method(*quoted_prices)
 
-    def _add_new_row(self):
+    def _add_new_row(self, time_stamp):
         """add new bar to price data"""
-        now = datetime.utcnow()
-        lag = timedelta(seconds=now.second, microseconds=now.microsecond)
-        tm = now - lag  # round out ms avoids appending many rows within the same second
+        lag = timedelta(seconds=time_stamp.second, microseconds=time_stamp.microsecond)
+        tm = time_stamp - lag  # round out ms avoids appending many rows within the same second
         if tm not in self._price_data.index:
             print(f'{self._symbol} {tm} (lag): {lag}')
             row_data = (self._symbol, ) + self._bar_data.get_ohlc_values()
-            new_row = pd.DataFrame(
-                [row_data],
-                columns=self._price_data.columns.to_list(),
-                index=[tm]
-            )
-            new_row.to_csv(self._price_history_file_path, mode='a', header=False)
-            self._price_data = pd.concat([self._price_data, new_row])
+            self._price_data.loc[tm] = row_data
+            self._price_data.reset_index().to_feather(self._history_file_path)
 
     def get_ohlc(self) -> t.Dict:
         res = self._bar_data.get_ohlc()
         res['symbol'] = self._symbol
         return res
 
+    @staticmethod
+    def _init_price_history_path(price_history_path, symbol):
+        full_path = f'{symbol}.ftr'
+        if len(price_history_path) > 0:
+            full_path = f'{price_history_path}\\{full_path}'
+        return full_path
+
 
 class AbstractTickerStream:
-    stream_parser: t.Type[AbstractStreamParser]
+    _stream_parser: t.Type[AbstractStreamParser]
+    _price_data: t.Union[pd.DataFrame]
 
     def __init__(
         self,
         stream,
         stream_parser,
         quote_file_path: str,
-        history_file_path: str,
+        history_path: str,
+        fetch_price_data: DATA_FETCH_FUNCTION,
         interval: int = 1
     ):
         self._stream = stream
         self._stream_parser = stream_parser
         self._quote_file_path = quote_file_path
-        self._history_file_path = history_file_path
+        self._history_path = history_path
         self._interval = interval
         self._stream_parsers = {}
         self._live_data_out = {}
-        self._price_data = pd.DataFrame().price_data.init()
-        self._price_data.to_csv(self._history_file_path)
-
+        self._fetch_price_data = fetch_price_data
         self._permission_error_count = 0
 
     @abstractmethod
@@ -314,11 +385,13 @@ class AbstractTickerStream:
                 self._stream_parsers[symbol] = self._stream_parser(
                     symbol,
                     interval=self._interval,
+                    fetch_price_data=self._fetch_price_data,
+                    history_path=self._history_path
                 )
         except KeyError:
             pass
         else:
-            self._stream_parsers[symbol].update_ohlc(msg)
+            self._stream_parsers[symbol].update_ohlc_state(msg)
             current_ohlc = self._stream_parsers[symbol].get_ohlc()
             self._live_data_out[symbol] = current_ohlc
             try:
@@ -326,7 +399,6 @@ class AbstractTickerStream:
                     json.dump(self._live_data_out, live_quote_file, indent=4)
             except PermissionError:
                 print(f'Warning JSON permission error')
-
 
 
 

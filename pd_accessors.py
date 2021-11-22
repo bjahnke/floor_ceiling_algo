@@ -7,7 +7,6 @@ from pandas import Timedelta
 
 from strategy_utils import Side, SignalStatus
 import trade_stats
-import tda_access
 from datetime import datetime, timedelta
 import operator as op
 

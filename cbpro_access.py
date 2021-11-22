@@ -1,8 +1,14 @@
+from time import perf_counter
+
 import pandas as pd
 import typing as t
+import yfinance_translate as yft
 from coinbase_pro.client import get_client
 from coinbase_pro.socket import get_stream
 from abstract_access import AbstractStreamParser, AbstractTickerStream
+import asyncio
+import aiocsv
+import aiofiles
 
 
 class CbproStream:
@@ -110,6 +116,7 @@ class CbProTickerStream(AbstractTickerStream):
     def run_stream(self):
         while True:
             msg = self._stream.receive()
+            print(msg)
             self.handle_stream(msg)
 
     @staticmethod
@@ -125,19 +132,65 @@ class CbProStreamParse(AbstractStreamParser):
             self._prev_sequence is not None
             and current_sequence <= self._prev_sequence
         ):
-            return self._prices
+            return self._quoted_prices
 
         self._prev_sequence = current_sequence
         return (float(data['price']), ) * 4
 
+def get_data(symbol):
+    return yft.yf_price_history_stream(symbol, interval=15, days=50)[0]
+
+
+async def write_data(values, columns, out_symbol):
+    async with aiofiles.open(f'{out_symbol}.csv', mode='w', encoding='utf-8', newline='') as afp:
+        writer = aiocsv.AsyncWriter(afp)
+        await writer.writerow(columns)
+        await writer.writerows(values)
+
 
 if __name__ == '__main__':
+    daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
+    symbols = daily_scan.symbol[daily_scan.score > 1].to_list()
+    # sub_set = symbols
+    # dfs = []
+    # for symbol in sub_set:
+    #     dfs.append((get_data(symbol), symbol))
+    #
+    # start = perf_counter()
+    # print(f'sync start')
+    # for df in dfs:
+    #     df[0].reset_index().to_feather(f'{df[1]}.ftr')
+    # print(f'sync end: {perf_counter() - start}')
+    #
+    # dfs2 = []
+    # print(f'sync start')
+    # for symbol in symbols:
+    #     dfs2.append(pd.read_feather(f'{symbol}.ftr'))
+    # print(f'sync end: {perf_counter() - start}')
+    #
+    # asyncio.set_event_loop(asyncio.new_event_loop())
+    # loop = asyncio.get_event_loop()
+    # tasks = [write_data(df.to_numpy(), df.columns.to_list(), symbol) for df, symbol in dfs]
+    #
+    # start_time = perf_counter()
+    # print(f'async start')
+    # loop.run_until_complete(asyncio.gather(*tasks))
+    # print(f'async end: {perf_counter() - start_time}')
+    # # yft.yf_price_history_stream('ADA-USD', interval=15, days=50, interval_type='m')
+    #
+    # dfs2 = []
+    # print(f'sync start')
+    # for symbol in symbols:
+    #     dfs2.append(pd.read_csv(f'{symbol}.csv'))
+    # print(f'sync end: {perf_counter() - start}')
+
     print('running stream')
-    cbpro_stream = cbpro_init_stream(['ADA-USD', 'ETH-USD'])
+    cbpro_stream = cbpro_init_stream(symbols)
     CbProTickerStream(
         stream=cbpro_stream,
         stream_parser=CbProStreamParse,
+        fetch_price_data=yft.yf_price_history_stream,
         quote_file_path='live_quotes.json',
-        history_file_path='live_data.csv',
-        interval=1
+        history_path=r'C:\Users\Brian\Documents\_projects\price_data',
+        interval=5
     ).run_stream()

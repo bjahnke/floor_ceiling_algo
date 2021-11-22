@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 import schedule
 import time
 
+from yfinance_translate import yf_price_history
+
 account_info = tda_access.LocalClient.account_info()
 
 
@@ -400,54 +402,6 @@ def scan_results_to_excel(data: pd.DataFrame, file_path: str):
             break
         except PermissionError:
             i += 1
-
-
-def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
-    """format price data to what is expected by scanner/strategy code"""
-
-    data.columns = map(lambda x: x.lower(), data.columns.to_list())
-
-    data['b_high'] = data.high
-    data['b_low'] = data.low
-    data['b_close'] = data.close
-
-    # convert date time to timezone unaware
-    try:
-        data.index = data.index.tz_convert(None)
-    except (AttributeError, TypeError):
-        pass
-
-    return data[['open', 'high', 'low', 'close', 'volume', 'b_high', 'b_low', 'b_close']]
-
-
-def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
-    try:
-        price_data: pd.DataFrame = yf.Ticker(symbol).history(
-            start=freq_range[0], end=freq_range[1], interval=freq_range[2]
-            # period=period, interval=interval
-        )
-    except json.decoder.JSONDecodeError:
-        return pd.DataFrame()
-    except requests.exceptions.ConnectionError:
-        return pd.DataFrame()
-    except AttributeError:
-        return pd.DataFrame()
-
-    if symbol == 'CCI30':
-        price_data = pd.read_csv('cci30_OHLCV.csv')
-        price_data.Date = pd.to_datetime(price_data.Date, infer_datetime_format=True)
-        price_data.index = price_data.Date
-        price_data = price_data.sort_index()
-
-    price_data = price_data.rename(columns={
-        'Open': 'open',
-        'High': 'high',
-        'Low': 'low',
-        'Close': 'close',
-        'Volume': 'volume'
-    })
-
-    return format_price_data(price_data)
 
 
 def get_sp500_symbols():

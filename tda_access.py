@@ -510,6 +510,15 @@ class LocalClient(metaclass=_LocalClientMeta):
         return df
 
     @classmethod
+    def price_history_stream(
+            cls,
+            symbol: str,
+            freq_range: tdargs.FreqRangeArgs,
+    ) -> t.Tuple[pd.DataFrame, t.Any]:
+        return cls.price_history(symbol=symbol, freq_range=freq_range), datetime.timedelta(seconds=5)
+
+
+    @classmethod
     def init_position(cls, symbol, quantity, side, stop_value=None, data_row=None) -> Position:
         return Position(symbol, quantity, side, stop_value=stop_value, data_row=None)
 
