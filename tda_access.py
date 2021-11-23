@@ -395,16 +395,16 @@ class _LocalClientMeta(type):
         order_data = cls.orders()[0]
         return order_data['orderId'], order_data['status']
 
-    def init_listed_stream(cls, symbols: t.List[str]):
+    def init_equity_stream(cls, symbols: t.List[str]):
         """
         stream price data of the given symbols every 500ms
         use this code to execute function: asyncio.run(LocalClient.initiate_stream(<enter symbols here>)
         """
         return configure_stream(
             stream_client=cls.STREAM_CLIENT,
-            add_book_handler=cls.STREAM_CLIENT.add_listed_book_handler,
+            add_book_handler=cls.STREAM_CLIENT.add_chart_equity_handler,
             symbols=symbols,
-            book_subs=cls.STREAM_CLIENT.listed_book_subs
+            book_subs=cls.STREAM_CLIENT.chart_equity_subs
         )
 
     def init_futures_stream(cls, symbols: t.List[str]) -> t.Callable:
@@ -525,7 +525,7 @@ class LocalClient(metaclass=_LocalClientMeta):
 
 class TdTickerStream(abstract_access.AbstractTickerStream):
     def run_stream(self):
-        asyncio.run(self._stream([self.handle_stream]))
+        asyncio.run(self._stream([self.handle_stream, lambda msg: print(json.dumps(msg, indent=4))]))
 
     @staticmethod
     def get_symbol(msg) -> str:

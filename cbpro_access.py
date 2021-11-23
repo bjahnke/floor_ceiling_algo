@@ -1,4 +1,5 @@
-from time import perf_counter
+from multiprocessing.connection import Connection
+from time import perf_counter, sleep, time
 
 import pandas as pd
 import typing as t
@@ -9,6 +10,7 @@ from abstract_access import AbstractStreamParser, AbstractTickerStream
 import asyncio
 import aiocsv
 import aiofiles
+import multiprocessing as mp
 
 
 class CbproStream:
@@ -113,15 +115,26 @@ def cbpro_init_stream(symbols: t.List[str]):
 
 
 class CbProTickerStream(AbstractTickerStream):
-    def run_stream(self):
+    def run_stream(self, symbols, stream_generator: t.Callable[[t.List[str]], t.Any]):
+        """
+        The main loop distributes messages to processes via
+        pipes based on the symbol in the message.
+        :param stream_generator: function returning a stream client
+        :param symbols: symbols to stream
+        :return:
+        """
+        self._init_stream_parsers(symbols)
+        self._init_processes(symbols)
+        stream = stream_generator(symbols)
         while True:
-            msg = self._stream.receive()
-            print(msg)
-            self.handle_stream(msg)
+            msg = stream.receive()
+            symbol = self.get_symbol(msg)
+            if symbol is not None:
+                self._msg_queue_lookup[symbol].put(msg)
 
     @staticmethod
     def get_symbol(msg):
-        return msg['product_id']
+        return msg.get('product_id', None)
 
 
 class CbProStreamParse(AbstractStreamParser):
@@ -148,49 +161,23 @@ async def write_data(values, columns, out_symbol):
         await writer.writerows(values)
 
 
+def f(args):
+    print(args[0], time()-args[1])
+
+
 if __name__ == '__main__':
     daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
-    symbols = daily_scan.symbol[daily_scan.score > 1].to_list()
-    # sub_set = symbols
-    # dfs = []
-    # for symbol in sub_set:
-    #     dfs.append((get_data(symbol), symbol))
-    #
-    # start = perf_counter()
-    # print(f'sync start')
-    # for df in dfs:
-    #     df[0].reset_index().to_feather(f'{df[1]}.ftr')
-    # print(f'sync end: {perf_counter() - start}')
-    #
-    # dfs2 = []
-    # print(f'sync start')
-    # for symbol in symbols:
-    #     dfs2.append(pd.read_feather(f'{symbol}.ftr'))
-    # print(f'sync end: {perf_counter() - start}')
-    #
-    # asyncio.set_event_loop(asyncio.new_event_loop())
-    # loop = asyncio.get_event_loop()
-    # tasks = [write_data(df.to_numpy(), df.columns.to_list(), symbol) for df, symbol in dfs]
-    #
-    # start_time = perf_counter()
-    # print(f'async start')
-    # loop.run_until_complete(asyncio.gather(*tasks))
-    # print(f'async end: {perf_counter() - start_time}')
-    # # yft.yf_price_history_stream('ADA-USD', interval=15, days=50, interval_type='m')
-    #
-    # dfs2 = []
-    # print(f'sync start')
-    # for symbol in symbols:
-    #     dfs2.append(pd.read_csv(f'{symbol}.csv'))
-    # print(f'sync end: {perf_counter() - start}')
+    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:5]
+    start_time = time()
 
     print('running stream')
-    cbpro_stream = cbpro_init_stream(symbols)
-    CbProTickerStream(
-        stream=cbpro_stream,
+    # cbpro_stream = cbpro_init_stream(in_symbols)
+    ticker_stream = CbProTickerStream(
+        stream=None,
         stream_parser=CbProStreamParse,
         fetch_price_data=yft.yf_price_history_stream,
         quote_file_path='live_quotes.json',
         history_path=r'C:\Users\Brian\Documents\_projects\price_data',
-        interval=5
-    ).run_stream()
+        interval=1
+    )
+    ticker_stream.run_stream(in_symbols, cbpro_init_stream)

@@ -5,10 +5,28 @@ from datetime import datetime, timedelta
 from enum import Enum, auto
 
 from dataclasses import dataclass
+from multiprocessing.connection import Connection
+
 from strategy_utils import Side
 import pandas as pd
 import pd_accessors
-import asyncio
+import multiprocessing as mp
+
+# ----------------------
+# UTIL FUNCTIONS (START)
+# ----------------------
+
+def set_bar_end_time(interval, time_stamp):
+    time_remaining = interval - time_stamp.minute % interval
+    right_bound_time = time_stamp.replace(
+        minute=time_stamp.minute + time_remaining, second=0, microsecond=0
+    )
+    return right_bound_time
+
+# ----------------------
+# UTIL FUNCTIONS (END)
+# ----------------------
+
 
 @dataclass
 class Condition:
@@ -178,7 +196,9 @@ class LiveQuotePermissionError(Exception):
 
 
 class Bar:
-    def __init__(self):
+    def __init__(self, interval, time_stamp):
+        self._interval = interval
+        self._bar_end_time = set_bar_end_time(interval, time_stamp)
         self._open = None
         self._high = None
         self._low = None
@@ -201,6 +221,13 @@ class Bar:
     def get_ohlc_values(self) -> OHLC_VALUES:
         return self._open, self._high, self._low, self._close
 
+    def update_ohlc(self, values: OHLC_VALUES, time_stamp):
+        if time_stamp > self._bar_end_time:
+            self._bar_end_time = set_bar_end_time(self._interval, time_stamp)
+            self.init_new(*values)
+        else:
+            self.update(*values)
+
     def get_ohlc(self):
         return {
             'open': self._open,
@@ -215,6 +242,7 @@ class StreamState(Enum):
     WAIT = auto()
     FILL_GAP = auto()
     NORMAL_UPDATE = auto()
+    INIT_NEW_BAR = auto()
     ADD_NEW_BAR = auto()
 
 
@@ -239,7 +267,7 @@ class AbstractStreamParser(ABC):
         self._fetch_price_data = fetch_price_data
         self._history_file_path = self.__class__._init_price_history_path(history_path, symbol)
         self._interval = interval
-        self._bar_data = Bar()
+        self._bar_data = None
         self._price_data = None
         self._quoted_prices = None
         self._prev_sequence = None
@@ -261,7 +289,7 @@ class AbstractStreamParser(ABC):
 
     def fetch_price_data(self) -> t.Tuple[pd.DataFrame, t.Any]:
         """x days worth of minute data by the give interval"""
-        x = 10
+        x = 5
         return self._fetch_price_data(self._symbol, self._interval, x, 'm')
 
     def update_ohlc_state(self, data: t.Dict):
@@ -270,7 +298,7 @@ class AbstractStreamParser(ABC):
 
         self._stream_state = self._state_table[self._stream_state](time_stamp)
 
-        self.update_ohlc(self._quoted_prices, time_stamp)
+        self._bar_data.update_ohlc(self._quoted_prices, time_stamp)
 
     def _init_stream_data(self, time_stamp) -> StreamState:
         """
@@ -280,6 +308,7 @@ class AbstractStreamParser(ABC):
         price history end and stream start
         """
         self._stream_init_time = time_stamp
+        self._bar_data = Bar(self._interval, time_stamp)
         self._price_data, delay = self.fetch_price_data()
         next_bar_time = (
             self._stream_init_time.replace(second=0, microsecond=0) +
@@ -297,38 +326,12 @@ class AbstractStreamParser(ABC):
         if time_stamp > self._target_fetch_time:
             self._price_data, _ = self.fetch_price_data()
             self._price_data.to_csv(self._history_file_path)
+            print(f'{self._symbol} gap filled')
             next_state = StreamState.NORMAL_UPDATE
         return next_state
 
     def _do_nothing(self, time_stamp):
         return self._stream_state
-
-    def update_ohlc(self, quoted_prices: OHLC_VALUES, time_stamp):
-        """
-        given data for a specific symbol, update the ohlc values
-        for given interval
-        :param time_stamp:
-        :param data:
-        :return:
-        """
-        if time_stamp.minute % self._interval == 0:
-            if self._stream_state == StreamState.NORMAL_UPDATE:
-                self._add_new_row(time_stamp)
-            update_method = self._bar_data.init_new
-        else:
-            update_method = self._bar_data.update
-
-        update_method(*quoted_prices)
-
-    def _add_new_row(self, time_stamp):
-        """add new bar to price data"""
-        lag = timedelta(seconds=time_stamp.second, microseconds=time_stamp.microsecond)
-        tm = time_stamp - lag  # round out ms avoids appending many rows within the same second
-        if tm not in self._price_data.index:
-            print(f'{self._symbol} {tm} (lag): {lag}')
-            row_data = (self._symbol, ) + self._bar_data.get_ohlc_values()
-            self._price_data.loc[tm] = row_data
-            self._price_data.reset_index().to_feather(self._history_file_path)
 
     def get_ohlc(self) -> t.Dict:
         res = self._bar_data.get_ohlc()
@@ -344,7 +347,8 @@ class AbstractStreamParser(ABC):
 
 
 class AbstractTickerStream:
-    _stream_parser: t.Type[AbstractStreamParser]
+    _stream_parser_cls: t.Type[AbstractStreamParser]
+    _stream_parsers: t.Dict[str, AbstractStreamParser]
     _price_data: t.Union[pd.DataFrame]
 
     def __init__(
@@ -356,8 +360,8 @@ class AbstractTickerStream:
         fetch_price_data: DATA_FETCH_FUNCTION,
         interval: int = 1
     ):
-        self._stream = stream
-        self._stream_parser = stream_parser
+        # self._stream = stream
+        self._stream_parser_cls = stream_parser
         self._quote_file_path = quote_file_path
         self._history_path = history_path
         self._interval = interval
@@ -365,9 +369,13 @@ class AbstractTickerStream:
         self._live_data_out = {}
         self._fetch_price_data = fetch_price_data
         self._permission_error_count = 0
+        self._msg_queue_lookup = {}
+        self._output_prices_pipes = {}
+
+        self._columns = ['symbol', 'open', 'high', 'low', 'close']
 
     @abstractmethod
-    def run_stream(self):
+    def run_stream(self, *args, **kwargs):
         raise NotImplementedError
 
     @staticmethod
@@ -379,15 +387,7 @@ class AbstractTickerStream:
         """handles the messages, translates to ohlc values, outputs to json and csv"""
         # start_time = time()
         try:
-            # TODO get symbol via interface
             symbol = self.__class__.get_symbol(msg)
-            if symbol not in self._stream_parsers:
-                self._stream_parsers[symbol] = self._stream_parser(
-                    symbol,
-                    interval=self._interval,
-                    fetch_price_data=self._fetch_price_data,
-                    history_path=self._history_path
-                )
         except KeyError:
             pass
         else:
@@ -399,6 +399,90 @@ class AbstractTickerStream:
                     json.dump(self._live_data_out, live_quote_file, indent=4)
             except PermissionError:
                 print(f'Warning JSON permission error')
+
+    def _run_process(self, queue: mp.Queue, send_write_conn: Connection):
+        """
+        multiprocess function which waits for
+        messages to be received through the pipe
+        then handles it
+        :param queue:
+        :return:
+        """
+        # TODO add write subprocess here? (would allow for different intervals per symbol)
+        while True:
+            # if empty, queue blocks until a message is received
+            msg = queue.get()
+            self.handle_stream(msg)
+            symbol = self.__class__.get_symbol(msg)
+            ohlc_data = self._stream_parsers[symbol].get_ohlc()
+            send_write_conn.send({'symbol': symbol, 'data': ohlc_data})
+
+    def _init_processes(self, symbols):
+        """
+        A unique process and pipe is initialized assigned to each symbol.
+        :param symbols:
+        :return:
+        """
+        ohlc_processes = []
+        write_processes = []
+        for symbol in symbols:
+            receive_write_conn, send_write_conn = mp.Pipe(duplex=False)
+            write_processes.append(mp.Process(target=self._write_row_handler, args=(receive_write_conn,)))
+
+            queue = mp.SimpleQueue()
+            self._msg_queue_lookup[symbol] = queue
+            ohlc_processes.append(mp.Process(target=self._run_process, args=(queue, send_write_conn)))
+
+        for i, ohlc_process in enumerate(ohlc_processes):
+            ohlc_process.start()
+            write_processes[i].start()
+
+    def _write_row_handler(self, receive_conn: Connection):
+        """
+        wait until until the current bar time is exceeded, then write
+        the current content of the receive connection as a new row
+        :param receive_conn:
+        :return:
+        """
+        # TODO PRINT lag
+        bar_end_time = set_bar_end_time(self._interval, datetime.utcnow())
+        while True:
+            time_stamp = datetime.utcnow()
+            if time_stamp > bar_end_time:
+                pre_write_lag = time_stamp - bar_end_time
+                d = receive_conn.recv()
+                symbol = d['symbol']
+                data = d['data']
+                new_row = pd.DataFrame(
+                    [data],
+                    columns=self._columns,
+                    index=[bar_end_time]
+                )
+                new_row.to_csv(self.get_price_history_file_path(d['symbol']), mode='a', header=False)
+                post_write_lag = datetime.utcnow() - bar_end_time
+                print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
+
+                # shift bar end time to the right by 1 interval
+                bar_end_time = set_bar_end_time(self._interval, time_stamp)
+
+    def get_price_history_file_path(self, symbol):
+        full_path = f'{symbol}.csv'
+        if len(self._history_path) > 0:
+            full_path = f'{self._history_path}\\{full_path}'
+        return full_path
+
+    def _init_stream_parsers(self, symbols):
+        self._stream_parsers = {
+            symbol: (
+                self._stream_parser_cls(
+                    symbol,
+                    interval=self._interval,
+                    fetch_price_data=self._fetch_price_data,
+                    history_path=self._history_path
+                )
+            )
+            for symbol in symbols
+        }
 
 
 
