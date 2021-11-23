@@ -446,19 +446,25 @@ class AbstractTickerStream:
         """
         # TODO PRINT lag
         bar_end_time = set_bar_end_time(self._interval, datetime.utcnow())
+        data = None
         while True:
             time_stamp = datetime.utcnow()
             if time_stamp > bar_end_time:
                 pre_write_lag = time_stamp - bar_end_time
-                d = receive_conn.recv()
-                symbol = d['symbol']
-                data = d['data']
+                if receive_conn.poll():
+                    data = receive_conn.recv()
+                elif data is None:
+                    # don't do anything until we receive the first message
+                    continue
+
+                symbol = data['symbol']
+                price_data = data['data']
                 new_row = pd.DataFrame(
-                    [data],
+                    [price_data],
                     columns=self._columns,
                     index=[bar_end_time]
                 )
-                new_row.to_csv(self.get_price_history_file_path(d['symbol']), mode='a', header=False)
+                new_row.to_csv(self.get_price_history_file_path(symbol), mode='a', header=False)
                 post_write_lag = datetime.utcnow() - bar_end_time
                 print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
 

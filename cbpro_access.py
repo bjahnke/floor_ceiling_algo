@@ -128,6 +128,8 @@ class CbProTickerStream(AbstractTickerStream):
         stream = stream_generator(symbols)
         while True:
             msg = stream.receive()
+            # TODO
+            #   - if msg not empty: add
             symbol = self.get_symbol(msg)
             if symbol is not None:
                 self._msg_queue_lookup[symbol].put(msg)
@@ -167,7 +169,7 @@ def f(args):
 
 if __name__ == '__main__':
     daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
-    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:5]
+    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:2]
     start_time = time()
 
     print('running stream')
