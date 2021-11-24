@@ -188,7 +188,7 @@ if __name__ == '__main__':
         stream_parser=CbProStreamParse,
         fetch_price_data=yft.yf_price_history_stream,
         quote_file_path='live_quotes.json',
-        history_path=r'C:\Users\Brian\Documents\_projects\price_data',
+        history_path=r'C:\Users\bjahn\PycharmProjects\algo_data',
         interval=1
     )
     ticker_stream.run_stream(['ADA-USD', 'ETH-USD'], cbpro_init_stream, yft.yf_get_delays)

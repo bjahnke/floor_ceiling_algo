@@ -383,8 +383,6 @@ class AbstractTickerStream:
     def get_symbol(msg) -> str:
         raise NotImplementedError
 
-
-
     def _init_processes(self, symbols):
         """
         A unique process and pipe is initialized assigned to each symbol.
