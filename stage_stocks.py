@@ -7,7 +7,7 @@ import pandas as pd
 # import pd_accessors
 # import cbpro_access
 
-daily_scan = pd.read_excel(r'C:\Users\temp\OneDrive\algo_data\csv\scan_out.xlsx')
+daily_scan = pd.read_excel(r'C:\Users\bjahn\OneDrive\algo_data\csv\scan_out.xlsx')
 
 
 def symbol_data_factory(*symbols: str) -> List[SymbolData]:

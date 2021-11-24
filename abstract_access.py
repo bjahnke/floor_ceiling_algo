@@ -16,6 +16,7 @@ import multiprocessing as mp
 # UTIL FUNCTIONS (START)
 # ----------------------
 
+
 def set_bar_end_time(interval, time_stamp):
     time_remaining = interval - time_stamp.minute % interval
     right_bound_time = time_stamp.replace(
@@ -248,17 +249,18 @@ class StreamState(Enum):
 
 class AbstractStreamParser(ABC):
     _quoted_prices: OHLC_VALUES
-    _price_data: pd.DataFrame
     _fetch_price_data: DATA_FETCH_FUNCTION
 
     def __init__(
         self,
         symbol,
         fetch_price_data: DATA_FETCH_FUNCTION,
+        data_delay,
         live_quote_file_path=None,
         history_path='',
         interval: int = 1,
     ):
+        self._data_delay = data_delay
         self._stream_state = StreamState.INITIAL
         self._stream_init_time = None
         self._target_fetch_time = None
@@ -268,7 +270,6 @@ class AbstractStreamParser(ABC):
         self._history_file_path = self.__class__._init_price_history_path(history_path, symbol)
         self._interval = interval
         self._bar_data = None
-        self._price_data = None
         self._quoted_prices = None
         self._prev_sequence = None
 
@@ -309,12 +310,11 @@ class AbstractStreamParser(ABC):
         """
         self._stream_init_time = time_stamp
         self._bar_data = Bar(self._interval, time_stamp)
-        self._price_data, delay = self.fetch_price_data()
         next_bar_time = (
             self._stream_init_time.replace(second=0, microsecond=0) +
             timedelta(minutes=self._stream_init_time.minute % self._interval)
         )
-        self._target_fetch_time = next_bar_time + delay
+        self._target_fetch_time = next_bar_time + self._data_delay
         return StreamState.FILL_GAP
 
     def _allow_fill_data_gap(self, time_stamp) -> StreamState:
@@ -324,8 +324,9 @@ class AbstractStreamParser(ABC):
         """
         next_state = StreamState.FILL_GAP
         if time_stamp > self._target_fetch_time:
-            self._price_data, _ = self.fetch_price_data()
-            self._price_data.to_csv(self._history_file_path)
+
+            price_data, _ = self.fetch_price_data()
+            price_data.to_csv(self._history_file_path)
             print(f'{self._symbol} gap filled')
             next_state = StreamState.NORMAL_UPDATE
         return next_state
@@ -366,11 +367,10 @@ class AbstractTickerStream:
         self._history_path = history_path
         self._interval = interval
         self._stream_parsers = {}
-        self._live_data_out = {}
+        # self._live_data_out = {}
         self._fetch_price_data = fetch_price_data
-        self._permission_error_count = 0
+        # self._permission_error_count = 0
         self._msg_queue_lookup = {}
-        self._output_prices_pipes = {}
 
         self._columns = ['symbol', 'open', 'high', 'low', 'close']
 
@@ -383,39 +383,41 @@ class AbstractTickerStream:
     def get_symbol(msg) -> str:
         raise NotImplementedError
 
-    def handle_stream(self, msg):
+    def handle_stream(self, queue: mp.SimpleQueue, write_pipe_lookup: t.Dict[str, Connection]):
         """handles the messages, translates to ohlc values, outputs to json and csv"""
         # start_time = time()
-        try:
-            symbol = self.__class__.get_symbol(msg)
-        except KeyError:
-            pass
-        else:
-            self._stream_parsers[symbol].update_ohlc_state(msg)
-            current_ohlc = self._stream_parsers[symbol].get_ohlc()
-            self._live_data_out[symbol] = current_ohlc
-            try:
-                with open(self._quote_file_path, 'w') as live_quote_file:
-                    json.dump(self._live_data_out, live_quote_file, indent=4)
-            except PermissionError:
-                print(f'Warning JSON permission error')
-
-    def _run_process(self, queue: mp.Queue, send_write_conn: Connection):
-        """
-        multiprocess function which waits for
-        messages to be received through the pipe
-        then handles it
-        :param queue:
-        :return:
-        """
-        # TODO add write subprocess here? (would allow for different intervals per symbol)
         while True:
-            # if empty, queue blocks until a message is received
             msg = queue.get()
-            self.handle_stream(msg)
             symbol = self.__class__.get_symbol(msg)
+            self._stream_parsers[symbol].update_ohlc_state(msg)
             ohlc_data = self._stream_parsers[symbol].get_ohlc()
-            send_write_conn.send({'symbol': symbol, 'data': ohlc_data})
+            write_pipe_lookup[symbol].send({'symbol': symbol, 'data': ohlc_data})
+
+    # def update_output_live_data_out(self, symbol, current_ohlc):
+    #     """temporary function to hold code for out-putting live quotes to json file"""
+    #     self._live_data_out[symbol] = current_ohlc
+    #     try:
+    #         with open(self._quote_file_path, 'w') as live_quote_file:
+    #             json.dump(self._live_data_out, live_quote_file, indent=4)
+    #     except PermissionError:
+    #         print(f'Warning JSON permission error')
+
+    # def _run_process(self, queue: mp.Queue, send_write_conn: Connection):
+    #     """
+    #     multiprocess function which waits for
+    #     messages to be received through the pipe
+    #     then handles it
+    #     :param queue:
+    #     :return:
+    #     """
+    #     # TODO add write subprocess here? (would allow for different intervals per symbol)
+    #     while True:
+    #         # if empty, queue blocks until a message is received
+    #         msg = queue.get()
+    #         self.handle_stream(msg)
+    #         symbol = self.__class__.get_symbol(msg)
+    #         ohlc_data = self._stream_parsers[symbol].get_ohlc()
+    #         send_write_conn.send({'symbol': symbol, 'data': ohlc_data})
 
     def _init_processes(self, symbols):
         """
@@ -423,19 +425,21 @@ class AbstractTickerStream:
         :param symbols:
         :return:
         """
-        ohlc_processes = []
         write_processes = []
+        msg_queue = mp.SimpleQueue()
+        write_pipe_lookup = {}
+
         for symbol in symbols:
             receive_write_conn, send_write_conn = mp.Pipe(duplex=False)
+            write_pipe_lookup[symbol] = send_write_conn
             write_processes.append(mp.Process(target=self._write_row_handler, args=(receive_write_conn,)))
 
-            queue = mp.SimpleQueue()
-            self._msg_queue_lookup[symbol] = queue
-            ohlc_processes.append(mp.Process(target=self._run_process, args=(queue, send_write_conn)))
+        msg_processor = mp.Process(target=self.handle_stream, args=(msg_queue, write_pipe_lookup))
+        msg_processor.start()
+        for write_process in write_processes:
+            write_process.start()
 
-        for i, ohlc_process in enumerate(ohlc_processes):
-            ohlc_process.start()
-            write_processes[i].start()
+        return msg_queue
 
     def _write_row_handler(self, receive_conn: Connection):
         """
@@ -471,28 +475,70 @@ class AbstractTickerStream:
                 # shift bar end time to the right by 1 interval
                 bar_end_time = set_bar_end_time(self._interval, time_stamp)
 
-    def get_price_history_file_path(self, symbol):
+    def get_price_history_file_path(self, symbol: str):
         full_path = f'{symbol}.csv'
         if len(self._history_path) > 0:
             full_path = f'{self._history_path}\\{full_path}'
         return full_path
 
-    def _init_stream_parsers(self, symbols):
+    def _init_stream_parsers(self, symbol_delays: t.Tuple[str, t.Any]):
         self._stream_parsers = {
             symbol: (
                 self._stream_parser_cls(
                     symbol,
+                    data_delay=delay,
                     interval=self._interval,
                     fetch_price_data=self._fetch_price_data,
                     history_path=self._history_path
                 )
             )
-            for symbol in symbols
+            for symbol, delay in symbol_delays
         }
 
 
+def write_price_history(fetch_price_history, recv_conn: Connection):
+    symbol, interval, days, interval_type, price_history_file_path = recv_conn.recv()
+    price_history = fetch_price_history(symbol, interval, days, interval_type)[0]
+    price_history.to_csv(price_history_file_path)
 
 
+def get_price_history_file_path(out_path, symbol: str):
+    full_path = f'{symbol}.csv'
+    if len(out_path) > 0:
+        full_path = f'{out_path}\\{full_path}'
+    return full_path
 
 
+def _write_row_handler(interval, out_columns, out_path, receive_conn: Connection):
+    """
+    wait until until the current bar time is exceeded, then write
+    the current content of the receive connection as a new row
+    :param receive_conn:
+    :return:
+    """
+    # TODO PRINT lag
+    bar_end_time = set_bar_end_time(interval, datetime.utcnow())
+    data = None
+    while True:
+        time_stamp = datetime.utcnow()
+        if time_stamp > bar_end_time:
+            pre_write_lag = time_stamp - bar_end_time
+            if receive_conn.poll():
+                data = receive_conn.recv()
+            elif data is None:
+                # don't do anything until we receive the first message
+                continue
 
+            symbol = data['symbol']
+            price_data = data['data']
+            new_row = pd.DataFrame(
+                [price_data],
+                columns=out_columns,
+                index=[bar_end_time]
+            )
+            new_row.to_csv(get_price_history_file_path(out_path, symbol), mode='a', header=False)
+            post_write_lag = datetime.utcnow() - bar_end_time
+            print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
+
+            # shift bar end time to the right by 1 interval
+            bar_end_time = set_bar_end_time(interval, time_stamp)

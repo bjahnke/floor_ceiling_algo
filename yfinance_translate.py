@@ -4,6 +4,7 @@ from datetime import datetime, timedelta
 import pandas as pd
 import requests
 import yfinance as yf
+import typing as t
 
 
 def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
@@ -53,6 +54,7 @@ def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
 
     return format_price_data(price_data)
 
+
 def yf_price_history_stream(symbol: str, interval: int, days: int, interval_type='m'):
     price_data = yf_price_history(
         symbol,
@@ -61,3 +63,32 @@ def yf_price_history_stream(symbol: str, interval: int, days: int, interval_type
     price_data['symbol'] = symbol
     delay = datetime.utcnow() - price_data.index[-1] + timedelta(minutes=1)
     return price_data[['symbol', 'open', 'high', 'low', 'close']].iloc[:-1], delay
+
+
+def yf_get_delays(symbols: t.List[str], interval, days, interval_type='m'):
+    delays = []
+    for symbol in symbols:
+        _, delay = yf_price_history_stream(symbol, interval, days, interval_type)
+        delays.append((symbol, delay))
+    return delays
+
+
+
+# def yf_get_delays(symbols: t.List[str], interval, days, interval_type='m'):
+#     price_data = yf.download(
+#         symbols,
+#         start=datetime.now() - timedelta(days=days),
+#         end=datetime.now(),
+#         interval=f'{interval}{interval_type}'
+#     )
+#     try:
+#         price_data.index = price_data.index.tz_convert(None)
+#     except (AttributeError, TypeError):
+#         pass
+#     data_split = []
+#     for symbol in symbols:
+#         close_data = price_data['Close'][symbol]
+#         delay = datetime.utcnow() - close_data.index[-1] + timedelta(minutes=1)
+#         data_split.append((symbol, delay))
+#     return data_split
+

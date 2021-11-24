@@ -1,3 +1,4 @@
+from datetime import datetime
 from multiprocessing.connection import Connection
 from time import perf_counter, sleep, time
 
@@ -8,8 +9,8 @@ from coinbase_pro.client import get_client
 from coinbase_pro.socket import get_stream
 from abstract_access import AbstractStreamParser, AbstractTickerStream
 import asyncio
-import aiocsv
-import aiofiles
+# import aiocsv
+# import aiofiles
 import multiprocessing as mp
 
 
@@ -115,16 +116,18 @@ def cbpro_init_stream(symbols: t.List[str]):
 
 
 class CbProTickerStream(AbstractTickerStream):
-    def run_stream(self, symbols, stream_generator: t.Callable[[t.List[str]], t.Any]):
+    def run_stream(self, symbols, stream_generator: t.Callable[[t.List[str]], t.Any], get_data_delays):
         """
         The main loop distributes messages to processes via
         pipes based on the symbol in the message.
+        :param get_data_delays:
         :param stream_generator: function returning a stream client
         :param symbols: symbols to stream
         :return:
         """
-        self._init_stream_parsers(symbols)
-        self._init_processes(symbols)
+        symbol_delays = get_data_delays(symbols, self._interval, 5)
+        self._init_stream_parsers(symbol_delays)
+        msg_queue = self._init_processes(symbols)
         stream = stream_generator(symbols)
         while True:
             msg = stream.receive()
@@ -132,7 +135,9 @@ class CbProTickerStream(AbstractTickerStream):
             #   - if msg not empty: add
             symbol = self.get_symbol(msg)
             if symbol is not None:
-                self._msg_queue_lookup[symbol].put(msg)
+                msg_queue.put(msg)
+
+            time_stamp = datetime.utcnow()
 
     @staticmethod
     def get_symbol(msg):
@@ -152,34 +157,36 @@ class CbProStreamParse(AbstractStreamParser):
         self._prev_sequence = current_sequence
         return (float(data['price']), ) * 4
 
-def get_data(symbol):
-    return yft.yf_price_history_stream(symbol, interval=15, days=50)[0]
+
+# def get_data(symbol):
+#     return yft.yf_price_history_stream(symbol, interval=15, days=50)[0]
 
 
-async def write_data(values, columns, out_symbol):
-    async with aiofiles.open(f'{out_symbol}.csv', mode='w', encoding='utf-8', newline='') as afp:
-        writer = aiocsv.AsyncWriter(afp)
-        await writer.writerow(columns)
-        await writer.writerows(values)
+# async def write_data(values, columns, out_symbol):
+#     async with aiofiles.open(f'{out_symbol}.csv', mode='w', encoding='utf-8', newline='') as afp:
+#         writer = aiocsv.AsyncWriter(afp)
+#         await writer.writerow(columns)
+#         await writer.writerows(values)
 
 
-def f(args):
-    print(args[0], time()-args[1])
+# def f(args):
+#     print(args[0], time()-args[1])
 
 
 if __name__ == '__main__':
-    daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
-    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:2]
+    daily_scan = pd.read_excel(r'C:\Users\bjahn\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
+    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:8]
     start_time = time()
 
     print('running stream')
     # cbpro_stream = cbpro_init_stream(in_symbols)
+
     ticker_stream = CbProTickerStream(
         stream=None,
         stream_parser=CbProStreamParse,
         fetch_price_data=yft.yf_price_history_stream,
         quote_file_path='live_quotes.json',
-        history_path=r'C:\Users\Brian\Documents\_projects\price_data',
+        history_path=r'C:\Users\bjahn\PycharmProjects\algo_data',
         interval=1
     )
-    ticker_stream.run_stream(in_symbols, cbpro_init_stream)
+    ticker_stream.run_stream(in_symbols, cbpro_init_stream, yft.yf_get_delays)
