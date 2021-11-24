@@ -103,16 +103,13 @@ def cbpro_init_stream(symbols: t.List[str]):
     ).stream
 
     stream.connect()
-    stream.send({
+    subscribe_msg = {
         'type': 'subscribe',
         'product_ids': symbols,
         'channels': ['ticker']
-    })
+    }
 
-    # receive response data before collecting stream data
-    sub_data = stream.receive()
-
-    return stream
+    return stream, subscribe_msg
 
 
 class CbProTickerStream(AbstractTickerStream):
@@ -128,16 +125,21 @@ class CbProTickerStream(AbstractTickerStream):
         symbol_delays = get_data_delays(symbols, self._interval, 5)
         self._init_stream_parsers(symbol_delays)
         msg_queue = self._init_processes(symbols)
-        stream = stream_generator(symbols)
+        stream, subscribe_msg = stream_generator(symbols)
+        last_subscribe = time() - 5
+        send_subscribe = True
         while True:
+            # if send_subscribe:
+            #     last_subscribe = time()
+            #     stream.send(subscribe_msg)
+            #
+            # send_subscribe = time() - last_subscribe > 3
+
             msg = stream.receive()
-            # TODO
-            #   - if msg not empty: add
             symbol = self.get_symbol(msg)
             if symbol is not None:
+                print(msg)
                 msg_queue.put(msg)
-
-            time_stamp = datetime.utcnow()
 
     @staticmethod
     def get_symbol(msg):
@@ -174,8 +176,8 @@ class CbProStreamParse(AbstractStreamParser):
 
 
 if __name__ == '__main__':
-    daily_scan = pd.read_excel(r'C:\Users\bjahn\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
-    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:8]
+    daily_scan = pd.read_excel(r'C:\Users\Brian\OneDrive\algo_data\csv\cbpro_scan_out.xlsx')
+    in_symbols = daily_scan.symbol[daily_scan.score > 1].to_list()[:4]
     start_time = time()
 
     print('running stream')
@@ -186,7 +188,7 @@ if __name__ == '__main__':
         stream_parser=CbProStreamParse,
         fetch_price_data=yft.yf_price_history_stream,
         quote_file_path='live_quotes.json',
-        history_path=r'C:\Users\bjahn\PycharmProjects\algo_data',
+        history_path=r'C:\Users\Brian\Documents\_projects\price_data',
         interval=1
     )
-    ticker_stream.run_stream(in_symbols, cbpro_init_stream, yft.yf_get_delays)
+    ticker_stream.run_stream(['ADA-USD', 'ETH-USD'], cbpro_init_stream, yft.yf_get_delays)

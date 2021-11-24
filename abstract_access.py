@@ -383,41 +383,7 @@ class AbstractTickerStream:
     def get_symbol(msg) -> str:
         raise NotImplementedError
 
-    def handle_stream(self, queue: mp.SimpleQueue, write_pipe_lookup: t.Dict[str, Connection]):
-        """handles the messages, translates to ohlc values, outputs to json and csv"""
-        # start_time = time()
-        while True:
-            msg = queue.get()
-            symbol = self.__class__.get_symbol(msg)
-            self._stream_parsers[symbol].update_ohlc_state(msg)
-            ohlc_data = self._stream_parsers[symbol].get_ohlc()
-            write_pipe_lookup[symbol].send({'symbol': symbol, 'data': ohlc_data})
 
-    # def update_output_live_data_out(self, symbol, current_ohlc):
-    #     """temporary function to hold code for out-putting live quotes to json file"""
-    #     self._live_data_out[symbol] = current_ohlc
-    #     try:
-    #         with open(self._quote_file_path, 'w') as live_quote_file:
-    #             json.dump(self._live_data_out, live_quote_file, indent=4)
-    #     except PermissionError:
-    #         print(f'Warning JSON permission error')
-
-    # def _run_process(self, queue: mp.Queue, send_write_conn: Connection):
-    #     """
-    #     multiprocess function which waits for
-    #     messages to be received through the pipe
-    #     then handles it
-    #     :param queue:
-    #     :return:
-    #     """
-    #     # TODO add write subprocess here? (would allow for different intervals per symbol)
-    #     while True:
-    #         # if empty, queue blocks until a message is received
-    #         msg = queue.get()
-    #         self.handle_stream(msg)
-    #         symbol = self.__class__.get_symbol(msg)
-    #         ohlc_data = self._stream_parsers[symbol].get_ohlc()
-    #         send_write_conn.send({'symbol': symbol, 'data': ohlc_data})
 
     def _init_processes(self, symbols):
         """
@@ -425,21 +391,26 @@ class AbstractTickerStream:
         :param symbols:
         :return:
         """
-        write_processes = []
+        live_quotes = {symbol: None for symbol in symbols}
         msg_queue = mp.SimpleQueue()
-        write_pipe_lookup = {}
-
-        for symbol in symbols:
-            receive_write_conn, send_write_conn = mp.Pipe(duplex=False)
-            write_pipe_lookup[symbol] = send_write_conn
-            write_processes.append(mp.Process(target=self._write_row_handler, args=(receive_write_conn,)))
-
-        msg_processor = mp.Process(target=self.handle_stream, args=(msg_queue, write_pipe_lookup))
+        receive_conn, send_conn = mp.Pipe(duplex=False)
+        write_process = mp.Process(target=self._write_row_handler, args=(receive_conn,))
+        msg_processor = mp.Process(target=self.handle_stream, args=(live_quotes, msg_queue, send_conn))
         msg_processor.start()
-        for write_process in write_processes:
-            write_process.start()
+        write_process.start()
 
         return msg_queue
+
+    def handle_stream(self, current_quotes, queue: mp.SimpleQueue, send_conn: Connection):
+        """handles the messages, translates to ohlc values, outputs to json and csv"""
+        # start_time = time()
+        while True:
+            msg = queue.get()
+            symbol = self.__class__.get_symbol(msg)
+            self._stream_parsers[symbol].update_ohlc_state(msg)
+            ohlc_data = self._stream_parsers[symbol].get_ohlc()
+            current_quotes[symbol] = ohlc_data
+            send_conn.send(current_quotes)
 
     def _write_row_handler(self, receive_conn: Connection):
         """
@@ -450,27 +421,27 @@ class AbstractTickerStream:
         """
         # TODO PRINT lag
         bar_end_time = set_bar_end_time(self._interval, datetime.utcnow())
-        data = None
+        current_quotes = None
         while True:
             time_stamp = datetime.utcnow()
             if time_stamp > bar_end_time:
                 pre_write_lag = time_stamp - bar_end_time
                 if receive_conn.poll():
-                    data = receive_conn.recv()
-                elif data is None:
+                    current_quotes = receive_conn.recv()
+                elif current_quotes is None:
                     # don't do anything until we receive the first message
                     continue
 
-                symbol = data['symbol']
-                price_data = data['data']
-                new_row = pd.DataFrame(
-                    [price_data],
-                    columns=self._columns,
-                    index=[bar_end_time]
-                )
-                new_row.to_csv(self.get_price_history_file_path(symbol), mode='a', header=False)
-                post_write_lag = datetime.utcnow() - bar_end_time
-                print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
+                for symbol, price_data in current_quotes.items():
+                    if price_data is not None:
+                        new_row = pd.DataFrame(
+                            [price_data.values()],
+                            columns=self._columns,
+                            index=[bar_end_time]
+                        )
+                        new_row.to_csv(self.get_price_history_file_path(symbol), mode='a', header=False)
+                        post_write_lag = datetime.utcnow() - bar_end_time
+                        print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
 
                 # shift bar end time to the right by 1 interval
                 bar_end_time = set_bar_end_time(self._interval, time_stamp)
