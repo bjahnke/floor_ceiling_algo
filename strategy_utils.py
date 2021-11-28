@@ -9,6 +9,18 @@ import numpy as np
 import pandas as pd
 
 
+class EmptyDataError(Exception):
+    """A dictionary with no data was received from request"""
+
+
+class TickerNotFoundError(Exception):
+    """error response from td api is Not Found"""
+
+
+class FaultReceivedError(Exception):
+    """received a fault from response to an API request"""
+
+
 class Side(Enum):
     """Used to express signals and trade direction in natural language"""
     LONG = 1

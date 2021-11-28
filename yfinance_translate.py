@@ -40,10 +40,11 @@ def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
 
     if symbol == 'CCI30':
         price_data = pd.read_csv('cci30_OHLCV.csv')
-        price_data.Date = pd.to_datetime(price_data.Date, infer_datetime_format=True)
+        price_data.Date = pd.to_datetime(price_data.Date, infer_datetime_format=True, utc=True)
         price_data.index = price_data.Date
         price_data = price_data.sort_index()
 
+    price_data.index = price_data.index.tz_convert(None)
     price_data = price_data.rename(columns={
         'Open': 'open',
         'High': 'high',
@@ -55,10 +56,12 @@ def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
     return format_price_data(price_data)
 
 
-def yf_price_history_stream(symbol: str, interval: int, days: int, interval_type='m'):
+def yf_price_history_stream(symbol: str, interval: int, bars: int, interval_type='m'):
+    """interval: bar interval in minutes"""
+    interval_secs = interval * 60
     price_data = yf_price_history(
         symbol,
-        freq_range=(datetime.now() - timedelta(days=days), datetime.now(), f'{interval}{interval_type}')
+        freq_range=(datetime.now() - timedelta(seconds=interval_secs*bars), datetime.now(), f'{interval}{interval_type}')
     )
     price_data['symbol'] = symbol
     delay = datetime.utcnow() - price_data.index[-1] + timedelta(minutes=1)

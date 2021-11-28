@@ -1,6 +1,4 @@
 from __future__ import annotations
-
-from time import perf_counter
 import math
 import pickle
 from datetime import datetime, timedelta
@@ -8,29 +6,24 @@ from enum import Enum, auto
 from time import perf_counter
 
 import httpx
-from matplotlib import pyplot as plt
+import strategy_utils
 from tda.orders.common import OrderType
 
 import abstract_access
-import back_test_utils
 import pandas as pd
 from copy import copy
 
-import tda.client
 from pandas import Timedelta
 
 import fc_data_gen
-import pd_accessors
-import tda_access
 import typing as t
 import tdargs
 from collections import namedtuple
 
 from strategy_utils import SignalStatus
-from tda_access import Side
 from scanner import yf_price_history
 
-OrderStatus = tda.client.Client.Order.Status
+
 
 _TradeStates = namedtuple('TradeStates', 'managed not_managed')
 
@@ -126,7 +119,7 @@ class SymbolData:
                 symbol=self._name,
                 freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
             )
-        except (tda_access.EmptyDataError, tda_access.FaultReceivedError):
+        except (strategy_utils.EmptyDataError, strategy_utils.FaultReceivedError):
             new_data = None
 
         if self._bench_symbol is not None:
@@ -169,7 +162,7 @@ class SymbolData:
                 print('here')
             order_data = self._broker_client.init_position(
                 symbol=self.name,
-                side=Side(self._cached_data.signals.current),
+                side=strategy_utils.Side(self._cached_data.signals.current),
                 quantity=quantity,
                 stop_value=current_bar.stop_loss_base,
                 data_row=current_bar
@@ -207,9 +200,10 @@ class SymbolState(Enum):
 
 class SymbolManager:
     symbol_data: SymbolData
-    account_data: tda_access.AccountInfo
+    account_data: abstract_access.AbstractBrokerAccount
     trade_state: SymbolState
     order_id: t.Union[int, None]
+    stop_order_id: t.Union[str, None]
     _status: str
 
     _VALID_ENTRY = [
@@ -298,7 +292,7 @@ class SymbolManager:
         stop_status_prev = self.symbol_data.cached_data.stop_status.iloc[-2]
         if stop_status == 1 and stop_status_prev == 0:
             self._broker_client.cancel_order(self.stop_order_id)
-            self.stop_order_id = self._broker_client.place_order_spec(
+            self.stop_order_id, status = self._broker_client.place_order_spec(
                 current_signal.init_stop_loss(OrderType.STOP)
             )
 
@@ -314,7 +308,6 @@ class SymbolManager:
                 self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
                 self.entry_signals.append(self._current_signal)
                 # save order status for diagnostic purposes
-                self._current_signal.status = OrderStatus(order_status)
                 new_trade_state = SymbolState.ORDER_PENDING
         return new_trade_state
 
@@ -325,17 +318,17 @@ class SymbolManager:
         set stop loss if status is filled
         """
         order_data = self._broker_client.get_order_data(self.order_id)
-        if order_data.status == OrderStatus.FILLED:
+        if order_data.status == self._broker_client.OrderStatus.FILLED:
             # must wait for open order to fill before setting stop,
             # otherwise it will cancel the initial order
-            self.stop_order_id = self._broker_client.place_order_spec(
+            self.stop_order_id, status = self._broker_client.place_order_spec(
                 self._current_signal.init_stop_loss(OrderType.TRAILING_STOP)
             )
             new_trade_state = SymbolState.FILLED
-        elif order_data.status == OrderStatus.REJECTED:
+        elif order_data.status == self._broker_client.OrderStatus.REJECTED:
             new_trade_state = SymbolState.ERROR
         else:
-            new_trade_state = SymbolState.ORDER_PENDING
+            new_trade_state = self._broker_client.OrderStatus.ORDER_PENDING
         return new_trade_state
 
     def error(self) -> SymbolState:

@@ -28,7 +28,7 @@ import typing as t
 import tda.orders.equities as toe
 import json
 
-from strategy_utils import Side
+import strategy_utils
 
 OrderStatus = tda.client.Client.Order.Status
 
@@ -81,40 +81,28 @@ def give_attribute(new_attr: str, value: t.Any) -> t.Callable:
     return decorator
 
 
-class EmptyDataError(Exception):
-    """A dictionary with no data was received from request"""
-
-
-class TickerNotFoundError(Exception):
-    """error response from td api is Not Found"""
-
-
-class FaultReceivedError(Exception):
-    """received a fault from response to an API request"""
-
-
 @dataclass
 class OrderData:
     OPEN_ORDER = {
-        Side.LONG: lambda sym, qty, _: toe.equity_buy_market(sym, qty),
-        Side.SHORT: lambda sym, qty, _: toe.equity_sell_short_market(sym, qty),
+        strategy_utils.Side.LONG: lambda sym, qty, _: toe.equity_buy_market(sym, qty),
+        strategy_utils.Side.SHORT: lambda sym, qty, _: toe.equity_sell_short_market(sym, qty),
     }
 
     CLOSE_ORDER = {
-        Side.LONG: lambda sym, qty, _: toe.equity_sell_market(sym, qty),
-        Side.SHORT: lambda sym, qty, _: toe.equity_buy_to_cover_market(sym, qty),
+        strategy_utils.Side.LONG: lambda sym, qty, _: toe.equity_sell_market(sym, qty),
+        strategy_utils.Side.SHORT: lambda sym, qty, _: toe.equity_buy_to_cover_market(sym, qty),
     }
 
     OPEN_STOP = {
 
-        Side.LONG: lambda sym, qty, stop_price: (
+        strategy_utils.Side.LONG: lambda sym, qty, stop_price: (
             toe.equity_sell_market(sym, qty)
             .set_order_type(OrderType.STOP)
             .set_stop_price(stop_price)
             .set_duration(Duration.GOOD_TILL_CANCEL)
             .set_session(Session.SEAMLESS)
         ),
-        Side.SHORT: lambda sym, qty, stop_price: (
+        strategy_utils.Side.SHORT: lambda sym, qty, stop_price: (
             toe.equity_buy_to_cover_market(sym, qty)
             .set_order_type(OrderType.STOP)
             .set_stop_price(stop_price)
@@ -123,14 +111,14 @@ class OrderData:
         ),
     }
     NEW_OPEN_STOP = {
-        Side.LONG: lambda sym, qty, stop_price, stop_type: (
+        strategy_utils.Side.LONG: lambda sym, qty, stop_price, stop_type: (
             toe.equity_sell_market(sym, qty)
             .set_order_type(stop_type)
             .set_stop_price(stop_price)
             .set_duration(Duration.GOOD_TILL_CANCEL)
             .set_session(Session.SEAMLESS)
         ),
-        Side.SHORT: lambda sym, qty, stop_price, stop_type: (
+        strategy_utils.Side.SHORT: lambda sym, qty, stop_price, stop_type: (
             toe.equity_buy_to_cover_market(sym, qty)
             .set_order_type(stop_type)
             .set_stop_price(stop_price)
@@ -139,10 +127,10 @@ class OrderData:
         ),
     }
 
-    ORDER_DICT = t.Dict[Side, t.Callable]
+    ORDER_DICT = t.Dict[strategy_utils.Side, t.Callable]
 
     name: str
-    direction: Side
+    direction: strategy_utils.Side
     quantity: int
     stop_loss: t.Union[float, None] = field(default=None)
     status: OrderStatus = field(default=None)
@@ -151,51 +139,8 @@ class OrderData:
     def __post_init__(self):
         self.quantity = max(self.quantity, 0)
 
-    @classmethod
-    def no_signal(cls, side: Side = Side.CLOSE):
-        return cls(
-            name='',
-            direction=Side.CLOSE,
-            quantity=0
-        )
-
-    @property
-    def open_order_spec(self) -> t.Union[OrderBuilder, None]:
-        return self._get_order_spec(OrderData.OPEN_ORDER)
-
-    @property
-    def stop_order_spec(self) -> t.Union[OrderBuilder, None]:
-        return self._get_order_spec(OrderData.OPEN_STOP)
-
-    def _get_order_spec(self, order_dict: ORDER_DICT, quantity=None) -> t.Union[OrderBuilder, None]:
-        # sourcery skip: lift-return-into-if
-        """
-        abstract method for retrieving order spec corresponding to this order data
-        with a default case that returns None when called
-        """
-        if quantity is None:
-            quantity = self.quantity
-
-        if quantity == 0:
-            order_spec = None
-        else:
-            order_spec = order_dict.get(self.direction, lambda _, __, ___: None)(
-                self.name, quantity, self.stop_loss
-            )
-        return order_spec
-
 
 class Position(abstract_access.AbstractPosition):
-    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None, data_row=None):
-        super().__init__(
-            symbol=symbol,
-            qty=qty,
-            side=side,
-            raw_position=raw_position,
-            stop_value=stop_value,
-            data_row=data_row,
-        )
-
     @classmethod
     def init_existing_position(cls, raw_position):
         """
@@ -207,10 +152,10 @@ class Position(abstract_access.AbstractPosition):
         long_qty = raw_position['longQuantity']
         if short_qty > 0:
             qty = short_qty
-            side = Side.SHORT
+            side = strategy_utils.Side.SHORT
         else:
             qty = long_qty
-            side = Side.LONG
+            side = strategy_utils.Side.LONG
         new_position = cls(
             symbol=raw_position['instrument']['symbol'],
             qty=qty,
@@ -253,10 +198,10 @@ class AccountInfo:
                 long_qty = pos['longQuantity']
                 if short_qty > 0:
                     qty = short_qty
-                    side = Side.SHORT
+                    side = strategy_utils.Side.SHORT
                 else:
                     qty = long_qty
-                    side = Side.LONG
+                    side = strategy_utils.Side.LONG
 
                 self._positions[
                     pos['instrument']['symbol']
@@ -264,7 +209,7 @@ class AccountInfo:
                     raw_position=pos,
                     symbol=pos['instrument']['symbol'],
                     qty=qty,
-                    side=Side(side)
+                    side=strategy_utils.Side(side)
                 )
         # self._pending_orders = self._parse_order_statuses()
 
@@ -353,7 +298,7 @@ class _LocalClientMeta(type):
         order = cls.orders_by_id(cached=cached)[order_id]
         return OrderData(
             name=order['orderLegCollection'][0]['instrument']['symbol'],
-            direction=Side(order['orderLegCollection'][0]['instruction']),
+            direction=strategy_utils.Side(order['orderLegCollection'][0]['instruction']),
             quantity=order['filledQuantity'],
             stop_loss=None,
             status=OrderStatus(order['status'])
@@ -375,9 +320,9 @@ class _LocalClientMeta(type):
                 order['status'] == 'QUEUED'
             ):
                 # direction should match the OPEN position direction
-                direction = Side.LONG
+                direction = strategy_utils.Side.LONG
                 if order_leg_collection['instruction'] == 'BUY_TO_COVER':
-                    direction = Side.SHORT
+                    direction = strategy_utils.Side.SHORT
 
                 stop_order_data = OrderData(
                     name=symbol,
@@ -441,6 +386,7 @@ class _LocalClientMeta(type):
 
 # create td client
 class LocalClient(metaclass=_LocalClientMeta):
+    OrderStatus = tda.client.Client.Order.Status
     cached_account_info: AccountInfo = None
 
     @classmethod
@@ -467,29 +413,29 @@ class LocalClient(metaclass=_LocalClientMeta):
                 need_extended_hours_data=False,
             )
         except OAuthError:
-            raise EmptyDataError
+            raise strategy_utils.EmptyDataError
 
         try:
             history = resp.json()
         except json.decoder.JSONDecodeError:
-            raise EmptyDataError
+            raise strategy_utils.EmptyDataError
 
         if history.get('candles', None) is None:
             error = history.get('error', None)
             if error is None and history.get('fault', None) is not None:
-                raise FaultReceivedError(f'tda responded with fault at {symbol}: {error}')
+                raise strategy_utils.FaultReceivedError(f'tda responded with fault at {symbol}: {error}')
             if error == 'Not Found':
                 print(f'td api could not find symbol {symbol}')
-                raise TickerNotFoundError(f'td api could not find symbol {symbol}')
+                raise strategy_utils.TickerNotFoundError(f'td api could not find symbol {symbol}')
             elif error is None:
                 raise Exception
             else:
-                raise EmptyDataError(f'No data received for symbol {symbol}')
+                raise strategy_utils.EmptyDataError(f'No data received for symbol {symbol}')
 
         df = pd.DataFrame(history['candles'])
 
         if history['empty'] is True:
-            raise EmptyDataError(f'No data received for symbol {symbol}')
+            raise strategy_utils.EmptyDataError(f'No data received for symbol {symbol}')
 
         # datetime given in ms, convert to readable date
         df.datetime = pd.to_datetime(df.datetime, unit='ms')

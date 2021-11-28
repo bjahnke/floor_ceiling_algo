@@ -46,72 +46,6 @@ Condition(
 )
 
 
-class AbstractBrokerClient(ABC):
-    def __init__(self, *args, **kwargs):
-        pass
-
-    @abstractmethod
-    def account_info(self, *args, **kwargs):
-        raise NotImplementedError
-
-    @abstractmethod
-    def price_history(self, symbol, freq_range):
-        raise NotImplementedError
-
-    @abstractmethod
-    def place_order_spec(self, order_spec):
-        raise NotImplementedError
-
-    @abstractmethod
-    def cancel_order(self, order_id):
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_order_data(self):
-        raise NotImplementedError
-
-    @abstractmethod
-    def init_position(self, symbol, quantity, side):
-        raise NotImplementedError
-
-
-class AbstractBrokerAccount(ABC):
-    def __init__(self, *args, **kwargs):
-        pass
-
-    @property
-    @abstractmethod
-    def positions(self) -> t.Dict:
-        raise NotImplementedError
-
-    @abstractmethod
-    def get_symbols(self):
-        raise NotImplementedError
-
-
-class AbstractOrders(ABC):
-    @abstractmethod
-    def _long_open(self, ):
-        pass
-
-    @abstractmethod
-    def _long_close(self):
-        pass
-
-    @abstractmethod
-    def _short_open(self):
-        pass
-
-    @abstractmethod
-    def _short_close(self):
-        pass
-
-
-class ReSize(Enum):
-    INC = auto()
-    DEC = auto()
-
-
 class AbstractPosition(ABC):
     _raw_position: t.Dict
     _symbol: str
@@ -182,6 +116,79 @@ class AbstractPosition(ABC):
     def full_close(self):
         """fully close the position"""
         self._close(quantity=self._qty)
+
+
+class AbstractBrokerAccount(ABC):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    @property
+    @abstractmethod
+    def positions(self) -> t.Dict[str, t.Type[AbstractPosition]]:
+        """get position info for all active positions"""
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def equity(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_symbols(self) -> t.List[str]:
+        """get all symbols of active positions within this account"""
+        raise NotImplementedError
+
+
+class AbstractBrokerClient(ABC):
+    def __init__(self, *args, **kwargs):
+        pass
+
+    @abstractmethod
+    def account_info(self, *args, **kwargs) -> t.Type[AbstractBrokerAccount]:
+        raise NotImplementedError
+
+    @abstractmethod
+    def price_history(self, symbol, freq_range):
+        raise NotImplementedError
+
+    @abstractmethod
+    def place_order_spec(self, order_spec):
+        raise NotImplementedError
+
+    @abstractmethod
+    def cancel_order(self, order_id):
+        raise NotImplementedError
+
+    @abstractmethod
+    def get_order_data(self):
+        raise NotImplementedError
+
+    @abstractmethod
+    def init_position(self, symbol, quantity, side):
+        raise NotImplementedError
+
+
+class AbstractOrders(ABC):
+    @abstractmethod
+    def _long_open(self, ):
+        pass
+
+    @abstractmethod
+    def _long_close(self):
+        pass
+
+    @abstractmethod
+    def _short_open(self):
+        pass
+
+    @abstractmethod
+    def _short_close(self):
+        pass
+
+
+class ReSize(Enum):
+    INC = auto()
+    DEC = auto()
 
 
 OHLC_VALUES = t.Tuple[float, float, float, float]
@@ -463,51 +470,3 @@ class AbstractTickerStream:
             )
             for symbol, delay in symbol_delays
         }
-
-
-def write_price_history(fetch_price_history, recv_conn: Connection):
-    symbol, interval, days, interval_type, price_history_file_path = recv_conn.recv()
-    price_history = fetch_price_history(symbol, interval, days, interval_type)[0]
-    price_history.to_csv(price_history_file_path)
-
-
-def get_price_history_file_path(out_path, symbol: str):
-    full_path = f'{symbol}.csv'
-    if len(out_path) > 0:
-        full_path = f'{out_path}\\{full_path}'
-    return full_path
-
-
-def _write_row_handler(interval, out_columns, out_path, receive_conn: Connection):
-    """
-    wait until until the current bar time is exceeded, then write
-    the current content of the receive connection as a new row
-    :param receive_conn:
-    :return:
-    """
-    # TODO PRINT lag
-    bar_end_time = set_bar_end_time(interval, datetime.utcnow())
-    data = None
-    while True:
-        time_stamp = datetime.utcnow()
-        if time_stamp > bar_end_time:
-            pre_write_lag = time_stamp - bar_end_time
-            if receive_conn.poll():
-                data = receive_conn.recv()
-            elif data is None:
-                # don't do anything until we receive the first message
-                continue
-
-            symbol = data['symbol']
-            price_data = data['data']
-            new_row = pd.DataFrame(
-                [price_data],
-                columns=out_columns,
-                index=[bar_end_time]
-            )
-            new_row.to_csv(get_price_history_file_path(out_path, symbol), mode='a', header=False)
-            post_write_lag = datetime.utcnow() - bar_end_time
-            print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
-
-            # shift bar end time to the right by 1 interval
-            bar_end_time = set_bar_end_time(interval, time_stamp)
