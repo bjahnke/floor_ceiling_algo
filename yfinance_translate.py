@@ -22,7 +22,7 @@ def format_price_data(data: pd.DataFrame) -> pd.DataFrame:
     except (AttributeError, TypeError):
         pass
 
-    return data[['open', 'high', 'low', 'close', 'b_high', 'b_low', 'b_close']]
+    return data[['open', 'high', 'low', 'close', 'b_high', 'b_low', 'b_close', 'volume']]
 
 
 def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
@@ -44,7 +44,10 @@ def yf_price_history(symbol: str, freq_range, period='3mo', interval='1h'):
         price_data.index = price_data.Date
         price_data = price_data.sort_index()
 
-    price_data.index = price_data.index.tz_convert(None)
+    try:
+        price_data.index = price_data.index.tz_convert(None)
+    except AttributeError:
+        pass
     price_data = price_data.rename(columns={
         'Open': 'open',
         'High': 'high',

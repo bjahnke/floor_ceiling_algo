@@ -8,7 +8,7 @@ import httpx
 import numpy as np
 import requests
 from matplotlib import pyplot as plt
-from strategy_utils import Side
+from strategy_utils import Side, EmptyDataError, TickerNotFoundError
 
 import back_test_utils
 import fc_data_gen
@@ -96,6 +96,7 @@ def fc_scan_symbol(
         scan_out_info: ScanOutInfo,
         bench_data: pd.DataFrame = None,
         freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
+        side=None
 ):
     """helper, scans one symbol, outputs data to files, returns scan results"""
 
@@ -151,7 +152,8 @@ def fc_scan_symbol(
         regime_floorceiling_col='regime_floorceiling',
         regime_change_col='regime_change',
         rebase_close_col='close',
-        stock_close_col='b_close'
+        stock_close_col='b_close',
+        side=side
     )
     stats = stats.sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
     try:
@@ -176,6 +178,7 @@ def fc_scan_all(
 
         close_range: Range = Range(),
         volume_range: Range = Range(),
+        side=None
 ) -> t.List[t.Dict]:
     """
     scans all given symbols. builds overview report of scan results.
@@ -213,7 +216,8 @@ def fc_scan_all(
                 price_data=data,
                 bench_data=bench_data,
                 freq_range=freq_range,
-                scan_out_info=scan_out_info
+                scan_out_info=scan_out_info,
+                side=side
             )
 
             # TODO turn into class attribute when scanner becomes class
@@ -223,11 +227,11 @@ def fc_scan_all(
             else:
                 all_price_data = pd.concat([all_price_data, data])
 
-        except tda_access.EmptyDataError:
+        except EmptyDataError:
             print(f'no data? {symbol}')
             failed.empty_data.add(symbol)
             symbols.pop(0)
-        except tda_access.TickerNotFoundError:
+        except TickerNotFoundError:
             failed.empty_data.add(symbol)
             symbols.pop(0)
         except NoSwingsError as err:
@@ -285,6 +289,7 @@ def regime_scan(
     regime_change_col: str,
     rebase_close_col: str,
     stock_close_col: str,
+    side=None
 ) -> t.Dict:
     # Create a dataframe and dictionary list
     # Current regime
@@ -304,7 +309,7 @@ def regime_scan(
 
     signal_start_data = price_data.signals.slices()[-1].index[0]
 
-    cumulative_absolute_returns = price_data.signals.cumulative_returns()[-1]
+    cumulative_absolute_returns = price_data.signals.cumulative_returns(side)[-1]
 
     position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
 
@@ -336,6 +341,7 @@ def main(
     bench: str = None,
     close_range: Range = Range(),
     volume_range: Range = Range(),
+    side=None
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     global raw_scan_results
@@ -361,7 +367,8 @@ def main(
             fetch_price_history=fetch_price_history,
             close_range=close_range,
             volume_range=volume_range,
-            scan_out_info=scan_out_info
+            scan_out_info=scan_out_info,
+            side=side
         )
     except:
         # output existing results if any uncaught exception occurs
