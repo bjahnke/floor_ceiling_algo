@@ -212,6 +212,9 @@ class Signals(DfAccessorBase):
                 extremes = signal_data.low
                 hits_target = (extremes - target_price).cummax() <= 0
 
+            # ignore the low of the entry bar since entry came after
+            hits_target[0] = False
+
             size_percents.loc[hits_target] = remaining_size_pct
             size_percents_group.append(size_percents)
             target_group.append(pd.Series(data=target_price, index=signal_data.index))
@@ -237,7 +240,7 @@ class Signals(DfAccessorBase):
 
         return pd.concat(position_weight)
 
-    def calc_lot(self, capital, weight_col: str, fx_rate=1, round_lot=1) -> pd.Series:
+    def calc_lot(self, capital, weight_col: str, fx_rate=1, round_lot: t.Union[int, None] = 1) -> pd.Series:
         """calculate the size in number of shares"""
         lots = []
         for signal_data in self._obj.signals.slices():
@@ -245,8 +248,9 @@ class Signals(DfAccessorBase):
             entry_price = signal_data.close.iloc[0]
 
             book_value = weight * capital
-            shares = book_value * fx_rate / entry_price
-            lot = round(shares // round_lot, 0) * round_lot
+            lot = book_value * fx_rate / entry_price
+            if round_lot is not None:
+                lot = round(lot // round_lot, 0) * round_lot
 
             lots.append(pd.Series(data=lot, index=signal_data.index))
         return pd.concat(lots).fillna(value=0)
@@ -473,7 +477,30 @@ class PriceData(DfAccessorBase):
         return df
 
 
+def starts(df, col, val):
+    return df[(df[col].shift(1) == val) & (df[col] != val)]
 
-def trips_price(higher, lower):
-    cum_delta = (higher - lower).cummin()
-    return cum_delta <= 0
+
+def starts_na(df, col) -> pd.Series:
+    return df[pd.isna(df[col].shift(1)) & pd.notna(df[col])]
+
+
+def ends_na(df, col) -> pd.Series:
+    return df[pd.isna(df[col].shift(-1)) & pd.notna(df[col])]
+
+
+
+
+def regime_slices(df, regime_col, regime_val=None):
+    assert regime_val in [1, -1, None]
+
+    starts = starts_na(df, regime_col)
+    ends = ends_na(df, regime_col)
+    res = []
+
+    for i, end_date in enumerate(ends.index.to_list()):
+        data_slice = df.loc[starts.index[i]: end_date]
+        if regime_val is not None and data_slice[regime_col].iloc[0] == regime_val:
+            res.append(data_slice)
+
+    return res

@@ -46,7 +46,8 @@ def miss_rate(returns, min_periods):
 # Define a function 'avg_win', calculates the average win
 def average_win(returns, min_periods):
     avg_win = (
-        returns[returns > 0].expanding(min_periods=min_periods).sum() / returns.expanding(min_periods=min_periods).count()
+        returns[returns > 0].expanding(min_periods=min_periods).sum() /
+        returns.expanding(min_periods=min_periods).count()
     ).fillna(method='ffill')
     return avg_win
 
@@ -54,7 +55,8 @@ def average_win(returns, min_periods):
 # Define a function 'avg_loss', calculates the average loss
 def average_loss(returns, min_periods):
     avg_loss = (
-        returns[returns < 0].expanding(min_periods=min_periods).sum() / returns.expanding(min_periods=min_periods).count()
+        returns[returns < 0].expanding(min_periods=min_periods).sum() /
+        returns.expanding(min_periods=min_periods).count()
     ).fillna(method='ffill')
     return avg_loss
 

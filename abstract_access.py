@@ -11,6 +11,7 @@ from strategy_utils import Side
 import pandas as pd
 import pd_accessors
 import multiprocessing as mp
+import select
 
 # ----------------------
 # UTIL FUNCTIONS (START)
@@ -19,6 +20,7 @@ import multiprocessing as mp
 
 def set_bar_end_time(interval, time_stamp):
     time_remaining = interval - time_stamp.minute % interval
+    # print(time_stamp.minute + time_remaining)
     right_bound_time = time_stamp.replace(
         minute=time_stamp.minute + time_remaining, second=0, microsecond=0
     )
@@ -390,21 +392,17 @@ class AbstractTickerStream:
     def get_symbol(msg) -> str:
         raise NotImplementedError
 
-    def _init_processes(self, symbols):
+    def _init_processes(self):
         """
         A unique process and pipe is initialized assigned to each symbol.
         :param symbols:
         :return:
         """
-        live_quotes = {symbol: None for symbol in symbols}
-        msg_queue = mp.SimpleQueue()
         receive_conn, send_conn = mp.Pipe(duplex=False)
         write_process = mp.Process(target=self._write_row_handler, args=(receive_conn,))
-        msg_processor = mp.Process(target=self.handle_stream, args=(live_quotes, msg_queue, send_conn))
-        msg_processor.start()
         write_process.start()
 
-        return msg_queue
+        return send_conn
 
     def handle_stream(self, current_quotes, queue: mp.SimpleQueue, send_conn: Connection):
         """handles the messages, translates to ohlc values, outputs to json and csv"""
@@ -427,13 +425,14 @@ class AbstractTickerStream:
         # TODO PRINT lag
         bar_end_time = set_bar_end_time(self._interval, datetime.utcnow())
         current_quotes = None
+
         while True:
             time_stamp = datetime.utcnow()
+            if receive_conn.poll():
+                current_quotes = receive_conn.recv()
             if time_stamp > bar_end_time:
                 pre_write_lag = time_stamp - bar_end_time
-                if receive_conn.poll():
-                    current_quotes = receive_conn.recv()
-                elif current_quotes is None:
+                if current_quotes is None:
                     # don't do anything until we receive the first message
                     continue
 
@@ -446,7 +445,11 @@ class AbstractTickerStream:
                         )
                         new_row.to_csv(self.get_price_history_file_path(symbol), mode='a', header=False)
                         post_write_lag = datetime.utcnow() - bar_end_time
-                        print(f'{symbol} {bar_end_time} (pre-write lag): {pre_write_lag}, (post-write lag): {post_write_lag}')
+                        print(
+                            f'{symbol} {bar_end_time} '
+                            f'(pre-write lag): {pre_write_lag}, '
+                            f'(post-write lag): {post_write_lag}'
+                        )
 
                 # shift bar end time to the right by 1 interval
                 bar_end_time = set_bar_end_time(self._interval, time_stamp)

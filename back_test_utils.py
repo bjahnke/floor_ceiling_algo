@@ -7,6 +7,8 @@ import scipy.signal
 import tdargs
 from datetime import datetime
 from dataclasses import dataclass
+
+from strategy_utils import Side
 from tda_access import LocalClient
 import itertools  # construct a list of permutations
 from trade_stats import (
@@ -15,6 +17,7 @@ from trade_stats import (
     average_loss, george, grit_index, calmar_ratio, tail_ratio, t_stat,
     common_sense_ratio, equity_at_risk, get_round_lot
 )
+from trade_stats import ts2
 import pd_accessors
 
 
@@ -630,7 +633,7 @@ def rolling_stdev(
 
 
 # Calculates the signals
-def signal_fcstmt(regime: pd.Series, st: pd.Series, mt: pd.Series) -> pd.Series:
+def signal_fcstmt(regime: pd.Series, st: pd.Series, mt: pd.Series, side: Side = None) -> pd.Series:
     """
     This function overimposes st/mt moving average cross condition on regime
     it will have an active position only if regime and moving averages are aligned
@@ -644,17 +647,13 @@ def signal_fcstmt(regime: pd.Series, st: pd.Series, mt: pd.Series) -> pd.Series:
     # Calculate the sign of the stmt delta
     stmt_sign = np.sign((st - mt).fillna(0))
     # Calculate entries/exits based on regime and stmt delta
-    active = np.where(np.sign(regime * stmt_sign) == 1, 1, 0)
+
+    if side is None:
+        search = np.sign(regime * stmt_sign) == 1
+    else:
+        search = (np.sign(regime * stmt_sign) == 1 & (regime * side.value == 1))
+    active = np.where(search, 1, 0)
     return regime * active
-
-
-def vectorized_signal_fcstmt(regime, st_list, mt_list):
-    deltas = []
-    ma_pairs = [(st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt]
-
-
-def create_sma_vector():
-    pass
 
 
 # Calculates the stop-loss
@@ -706,17 +705,6 @@ def stop_loss(
     return stoploss
 
 
-def vectorized_stop_loss(
-    signal: pd.DataFrame,
-    close: pd.Series,
-    s_low: pd.Series,
-    s_high: pd.Series
-):
-    local_signal = signal.copy()
-    stoploss = (s_low.add(s_high, fill_value=0)).fillna(method='ffill')  # join all swings in 1 column
-    local_signal[~((np.isnan(signal.shift(1))) & (~np.isnan(signal)))] = np.nan
-
-
 # Calculates the transaction costs
 def transaction_costs(data: pd.DataFrame, position_column: str, daily_return, transaction_cost: float):
     """
@@ -741,16 +729,18 @@ def init_fc_signal_stoploss(
     min_periods: int,
     window: int,
     limit: int,
-):
+    side=None
+) -> Tuple[pd.DataFrame, pd.DataFrame]:
     """
+    initializes strategy for a given set of short term/ long term ma pairs.
+    Selects the highest robustness score, also returns overview of all stats
     TODO return info on selected signal (smas, etc)
+    :param side:
     :param ma_pairs:
     :param fc_data:
     :param symbol:
     :param base_close:
     :param relative_close:
-    :param st_list:
-    :param mt_list:
     :param transaction_cost:
     :param percentile:
     :param min_periods:
@@ -760,20 +750,16 @@ def init_fc_signal_stoploss(
     """
 
     # cumulative performance if multiple symbols are being analyzed
-    perf = pd.DataFrame()
     best_rar = None
     # ==================================
     # Beginning of file loop in example
     # ==================================
     # Calculate returns for the relative closed price
     # fc_data['r_return_1d'] = returns(fc_data['rebased_close'])
-    # rets = pd.Series(fc_data['rebased_close'])
     r_return_1d = 'r_return_1d'
     fc_data[r_return_1d] = simple_returns(fc_data[relative_close])
-    row = {}
 
     # Calculate returns for the absolute closed price
-    # fc_data['return_1d'] = returns(fc_data['Close'])
     return_1d = 'return_1d'
     fc_data[return_1d] = simple_returns(fc_data[base_close])
 
@@ -782,7 +768,7 @@ def init_fc_signal_stoploss(
     sw_rebased_high = 'sw_high'
     high_score = None
     stats = []
-    # deltas: pd.DataFrame = fc_data[relative_close].price_opr.sma_signals_vector(ma_pairs)
+    best_stats = None
 
     for st, mt in ma_pairs:
         # Create dataframe
@@ -803,96 +789,21 @@ def init_fc_signal_stoploss(
             ]
         ].copy()
 
+        data = single_init_fc_signal_stoploss(
+            fc_data=data,
+            symbol=symbol,
+            base_close=base_close,
+            relative_close=relative_close,
+            st_ma_per=int(st),
+            mt_ma_per=int(mt),
+            side=side
+        )
+        if data is None:
+            continue
+
         stmt = str(st) + str(mt)
         signal_col = 'signal'
-        stop_loss_col = 'stop_loss'
         daily_returns_col = 'd' + stmt
-
-        # Calculate moving averages
-        r_st_ma = sma(
-            df=data,
-            price=relative_close,
-            ma_per=st,
-            min_per=1,
-            decimals=None
-        )
-        r_mt_ma = sma(
-            df=data,
-            price=relative_close,
-            ma_per=mt,
-            min_per=1,
-            decimals=None
-        )
-
-        # Calculate positions based on regime and ma cross
-        data[signal_col] = signal_fcstmt(
-            regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma
-        )
-
-        if data.signals.count == 0:
-            # no signals found, skip
-            print('no initial signal found')
-            continue
-
-        # crop out first signal if data set does not capture where the first cross occurred
-        stmt_sign = pd.Series(np.sign((r_st_ma - r_mt_ma))).backfill()
-        ma_crosses = data.loc[stmt_sign != stmt_sign.shift(1).backfill()]
-        try:
-            first_cross_date = ma_crosses.index[0]
-        except IndexError:
-            if data.signals.count == 1:
-                print(f'{symbol}: ma never crosses in data set')
-                continue
-        else:
-            first_signal = data.signals.slices()[0]
-            if first_signal.index[0] < first_cross_date:
-                data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = 0
-
-            if data.signals.count == 0:
-                # initial signal not valid. none left. skip
-                print('no signal after first removed')
-                continue
-
-        # stop loss (relative)
-        data[stop_loss_col] = stop_loss(
-            signal=data[signal_col],
-            close=data[relative_close],
-            s_low=data[sw_rebased_low],
-            s_high=data[sw_rebased_high]
-        )
-
-        # stop loss (absolute)
-        data['stop_loss_base'] = stop_loss(
-            signal=data[signal_col],
-            close=data[base_close],
-            s_low=data['sw_b_low'],
-            s_high=data['sw_b_high']
-        )
-
-        if data.signals.count == 0:
-            print(f'{symbol}: no signals after stop loss generation')
-            # initial signal not valid. none left. skip
-            continue
-
-        data['trail_stop'] = data.stop_losses.init_trail_stop()
-        (
-            data['trail_stop_to_cost'],
-            data['signal'],
-            data['stop_status']
-        ) = data.stop_losses.trail_to_cost(
-            trail_stop=data.trail_stop
-        )
-        data.signal = data.signal.fillna(0)
-        if data.signals.count == 0:
-            print('no signals after trail stop generation')
-            # initial signal not valid. none left. skip
-            continue
-
-        # TODO target_r should be input to strategy
-        data['size_remaining'], data['target_price'] = data.signals.init_simulated_scale_out(
-            stop_loss_col=stop_loss_col,
-            target_r=1.5
-        )
 
         # Date of initial position to calculate excess returns for passive
         # Passive stats are recalculated each time because start date changes with stmt sma
@@ -905,7 +816,7 @@ def init_fc_signal_stoploss(
             data_sliced['r_return_1d'] *
             data_sliced[signal_col].shift(1) *
             data_sliced.size_remaining
-        )
+        ).fillna(0)
 
         data_sliced[daily_returns_col] = transaction_costs(
             data=data_sliced,
@@ -915,96 +826,297 @@ def init_fc_signal_stoploss(
         )
 
         # Cumulative performance must be higher than passive or regime (w/o transaction costs)
-        passive_1d = data_sliced['r_return_1d']
-        returns = data_sliced[daily_returns_col]
 
-        # Performance
-        trade_count = count_signals(signals=data_sliced[signal_col])
-        cumul_passive = cumulative_returns(passive_1d, min_periods)
-        cumul_returns = cumulative_returns(returns, min_periods)
-        cumul_excess = cumul_returns - cumul_passive - 1
-        cumul_returns_pct = cumulative_returns_pct(returns, min_periods)
-        roll_profits = rolling_profits(
-            returns, window).fillna(method='ffill')
+        full_stats = calc_stats(
+            strategy_data=data_sliced,
+            strategy_returns_col=daily_returns_col,
+            passive_returns_col='r_return_1d',
+            min_periods=min_periods,
+            window=window,
+            percentile=percentile,
+            limit=limit
+        )
 
-        # Gain Expectancies
-        _hit_rate = hit_rate(returns, min_periods)
-        _avg_win = average_win(returns, min_periods)
-        _avg_loss = average_loss(returns, min_periods)
-        geo_ge = george(win_rate=_hit_rate, avg_win=_avg_win,
-                        avg_loss=_avg_loss).apply(np.exp) - 1
+        row = full_stats.iloc[-1].to_dict()
 
-        # Robustness metrics
-        grit = grit_index(returns, min_periods)
-        calmar = calmar_ratio(returns, min_periods)
-        pr = roll_profits
-        tr = tail_ratio(returns, window, percentile, limit)
-        csr = common_sense_ratio(pr, tr)
-        sqn = t_stat(signal_count=trade_count, expectancy=geo_ge)
-
-        ticker_stmt = f'{symbol}_{str(stmt)}'
-
-        # Add cumulative performance to the perf dataframe
-        perf[ticker_stmt] = cumul_returns
-
-        # Append list
-        row = {
-            'ticker': symbol,
-            'tstmt': ticker_stmt,
-            'st': st,
-            'mt': mt,
-            'perf': round(cumul_returns_pct[-1], 3),
-            'excess': round(cumul_excess[-1], 3),
-            'score': round(grit[-1] * csr[-1] * sqn[-1], 1),
-            'trades': trade_count[-1],
-            'win': round(_hit_rate[-1], 3),
-            'avg_win': round(_avg_win[-1], 3),
-            'avg_loss': round(_avg_loss[-1], 3),
-            'geo_GE': round(geo_ge[-1], 4),
-            'grit': round(grit[-1], 1),
-            'csr': round(csr[-1], 1),
-            'p2l': round(pr[-1], 1),
-            'tail': round(tr[-1], 1),
-            'sqn': round(sqn[-1], 1),
-            'risk_adjusted_returns': csr[-1] * sqn[-1] * grit[-1]
-        }
+        row['ticker'] = symbol
+        row['st'] = st
+        row['mt'] = mt
         stats.append(row)
 
         # Save high_score for later use in the position sizing module
         if best_rar is None or row['risk_adjusted_returns'] > best_rar:
             best_rar = row['risk_adjusted_returns']
             high_score = data.copy()
-            high_score['score'] = row['risk_adjusted_returns']
-            high_score['trades'] = trade_count
-            high_score['r_perf'] = cumul_returns
-            high_score['csr'] = csr
-            high_score['geo_GE'] = geo_ge
-            high_score['sqn'] = sqn
-            high_score['st_ma'] = r_st_ma
-            high_score['mt_ma'] = r_mt_ma
-    """
-    perf, row, best_rar: variables at a higher state
-    high_score: the best results in terms of robustness score()
-    
-    """
-    # analysis_result = AnalysisData(
-    #     df=high_score,
-    #     stats=pd.DataFrame(stats),
-    #     perf=perf,
-    #     best_rar=best_rar
-    # )
-    # return high_score, perf, row, best_rar
+            best_stats = full_stats
+
+    stats = pd.DataFrame(stats)
+    stats_out = stats.sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
+    # TODO include interval in name
+    try:
+
+        stats_out.reset_index().to_feather(fr'C:\algo_data_store\strategy_data\strategy_scoreboard\{symbol}.ftr')
+    except Exception as e:
+        print(f'TODO catch exception {e}')
+    try:
+        best_stats.reset_index().to_feather(fr'C:\algo_data_store\strategy_data\full_stats\{symbol}.ftr')
+    except Exception as e:
+        print(f'TODO catch exception {e}')
+
     return (
         high_score,
-        pd.DataFrame(stats)  # .sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
+        stats
     )
+
+
+def calc_stats(
+    strategy_data: pd.DataFrame,
+    strategy_returns_col: str,
+    passive_returns_col: str,
+    min_periods: int,
+    window: int,
+    percentile: float,
+    limit,
+) -> pd.DataFrame:
+    """
+    get full stats of strategy, rolling and expanding
+    :param strategy_data:
+    :param strategy_returns_col:
+    :param passive_returns_col:
+    :param min_periods:
+    :param window:
+    :param percentile:
+    :param limit:
+    :return:
+    """
+
+    strategy_returns_1d = strategy_data[strategy_returns_col]
+    passive_returns_1d = strategy_data[passive_returns_col]
+
+    # Performance
+    cumul_passive = cumulative_returns_pct(passive_returns_1d, min_periods)
+    cumul_returns = cumulative_returns_pct(strategy_returns_1d, min_periods)
+    cumul_excess = cumul_returns - cumul_passive - 1
+    cumul_returns_pct = cumulative_returns_pct(strategy_returns_1d, min_periods)
+
+    # Robustness metrics
+
+    grit_expanding = ts2.expanding_grit(cumul_returns)
+    grit_roll = ts2.rolling_grit(cumul_returns, window)
+
+    tr_expanding = ts2.expanding_tail_ratio(cumul_returns, percentile, limit)
+    tr_roll = ts2.rolling_tail_ratio(cumul_returns, window, percentile, limit)
+
+    profits_expanding = ts2.expanding_profits(strategy_returns_1d)
+    losses_expanding = ts2.expanding_losses(strategy_returns_1d)
+    pr_expanding = ts2.profit_ratio(
+        profits=profits_expanding,
+        losses=losses_expanding
+    )
+
+    profits_roll = ts2.rolling_profits(strategy_returns_1d, window)
+    losses_roll = ts2.rolling_losses(strategy_returns_1d, window)
+    pr_roll = ts2.profit_ratio(
+        profits=profits_roll,
+        losses=losses_roll
+    )
+
+    # Cumulative t-stat
+    win_count = strategy_returns_1d[strategy_returns_1d > 0].expanding().count().fillna(method='ffill')
+    total_count = strategy_returns_1d[strategy_returns_1d != 0].expanding().count().fillna(method='ffill')
+
+    csr_expanding = ts2.common_sense_ratio(pr_expanding, tr_expanding)
+    csr_roll = ts2.common_sense_ratio(pr_roll, tr_roll)
+
+    # Trade Count
+    signals = strategy_data.signal.copy()
+    trade_count = pd.Series(data=np.NAN, index=signals.index)
+    # TODO check if first trade counts if first row is active signal
+    trade_count.loc[signals.diff() != 0] = signals.loc[signals.diff() != 0].abs().cumsum()
+    trade_count = trade_count.fillna(method='ffill')
+    signal_roll = trade_count.diff(window)
+
+    win_rate = (win_count / total_count).fillna(method='ffill')
+    avg_win = profits_expanding / total_count
+    avg_loss = losses_expanding / total_count
+    edge_expanding = ts2.expectancy(win_rate, avg_win, avg_loss).fillna(method='ffill')
+    sqn_expanding = ts2.t_stat(trade_count, edge_expanding)
+
+    win_roll = strategy_returns_1d.copy()
+    win_roll[win_roll < 0] = np.nan
+    win_rate_roll = win_roll.rolling(window, min_periods=0).count() / window
+    avg_win_roll = profits_roll / window
+    avg_loss_roll = losses_roll / window
+
+    edge_roll = ts2.expectancy(win_rate=win_rate_roll, avg_win=avg_win_roll, avg_loss=avg_loss_roll)
+    sqn_roll = t_stat(signal_count=signal_roll, expectancy=edge_roll)
+
+    score_expanding = ts2.robustness_score(grit_expanding, csr_expanding, sqn_expanding)
+    score_roll = ts2.robustness_score(grit_roll, csr_roll, sqn_roll)
+
+    stats = pd.DataFrame.from_dict({
+        # Note: commented out items should be included afterwords
+        # 'ticker': symbol,
+        # 'tstmt': ticker_stmt,
+        # 'st': st,
+        # 'mt': mt,
+        'perf': cumul_returns_pct,
+        'excess': cumul_excess,
+
+        # 'score': round(score_expanding[-1], 1),  # TODO remove (risk_adj_returns used for score)
+        # 'score_roll': round(score_roll[-1], 1),  # TODO remove (risk_adj_returns used for score)
+
+        'trades': trade_count,
+        'win': win_rate,
+        'win_roll': win_rate_roll,
+        'avg_win': avg_win,
+        'avg_win_roll': avg_win_roll,
+        'avg_loss': avg_loss,
+        'avg_loss_roll': avg_loss_roll,
+        # 'geo_GE': round(geo_ge, 4),
+        'expectancy': edge_expanding,
+        'edge_roll': edge_roll,
+
+        'grit': grit_expanding,
+        'grit_roll': grit_roll,
+
+        'csr': csr_expanding,
+        'csr_roll': csr_roll,
+
+        'pr': pr_expanding,
+        'pr_roll': pr_roll,
+
+        'tail': tr_expanding,
+        'tail_roll': tr_roll,
+
+        'sqn': sqn_expanding,
+        'sqn_roll': sqn_roll,
+
+        'risk_adjusted_returns': score_expanding,
+        'risk_adj_returns_roll': score_roll,
+    })
+    return stats
+
+
+def single_init_fc_signal_stoploss(
+        fc_data: pd.DataFrame,
+        symbol: str,
+        base_close: str,
+        relative_close: str,
+        st_ma_per: int,
+        mt_ma_per: int,
+        side=None
+):
+    """
+
+    :param side:
+    :param mt_ma_per:
+    :param st_ma_per:
+    :param fc_data:
+    :param symbol:
+    :param base_close:
+    :param relative_close:
+    :return:
+    """
+    r_regime_floorceiling = 'regime_floorceiling'
+    sw_rebased_low = 'sw_low'
+    sw_rebased_high = 'sw_high'
+    signal_col = 'signal'
+    stop_loss_col = 'stop_loss'
+    data = fc_data.copy()
+
+    r_st_ma = sma(
+        df=data,
+        price=relative_close,
+        ma_per=st_ma_per,
+        min_per=1,
+        decimals=None
+    )
+    data['st_ma'] = r_st_ma
+
+    r_mt_ma = sma(
+        df=data,
+        price=relative_close,
+        ma_per=mt_ma_per,
+        min_per=1,
+        decimals=None
+    )
+    data['mt_ma'] = r_mt_ma
+
+    data[signal_col] = signal_fcstmt(
+        regime=data[r_regime_floorceiling], st=r_st_ma, mt=r_mt_ma, side=side
+    )
+
+    if data.signals.count == 0:
+        # no signals found, skip
+        print('no initial signal found')
+        return None
+
+    # crop out first signal if data set does not capture where the first cross occurred
+    stmt_sign = pd.Series(np.sign((r_st_ma - r_mt_ma))).backfill()
+    ma_crosses = data.loc[stmt_sign != stmt_sign.shift(1).backfill()]
+    try:
+        first_cross_date = ma_crosses.index[0]
+    except IndexError:
+        if data.signals.count == 1:
+            print(f'{symbol}: ma never crosses in data set')
+            return None
+    else:
+        first_signal = data.signals.slices()[0]
+        if first_signal.index[0] < first_cross_date:
+            data.signal.loc[first_signal.index[0]: first_signal.index[-1]] = 0
+
+        if data.signals.count == 0:
+            # initial signal not valid. none left. skip
+            print('no signal after first removed')
+            return None
+
+    # stop loss (relative)
+    data[stop_loss_col] = stop_loss(
+        signal=data[signal_col],
+        close=data[relative_close],
+        s_low=data[sw_rebased_low],
+        s_high=data[sw_rebased_high]
+    )
+
+    # stop loss (absolute)
+    data['stop_loss_base'] = stop_loss(
+        signal=data[signal_col],
+        close=data[base_close],
+        s_low=data['sw_b_low'],
+        s_high=data['sw_b_high']
+    )
+
+    if data.signals.count == 0:
+        print(f'{symbol}: no signals after stop loss generation')
+        # initial signal not valid. none left. skip
+        return None
+
+    data['trail_stop'] = data.stop_losses.init_trail_stop()
+    (
+        data['trail_stop_to_cost'],
+        data['signal'],
+        data['stop_status']
+    ) = data.stop_losses.trail_to_cost(
+        trail_stop=data.trail_stop
+    )
+    data.signal = data.signal.fillna(0)
+    if data.signals.count == 0:
+        print('no signals after trail stop generation')
+        # initial signal not valid. none left. skip
+        return None
+
+    data['size_remaining'], data['target_price'] = data.signals.init_simulated_scale_out(
+        stop_loss_col=stop_loss_col,
+        # TODO target_r should be an input
+        target_r=1.5
+    )
+    return data
 
 
 def get_position_size(
     data: pd.DataFrame,
     constant_risk: float,
-    constant_weight: float,
-    stop_loss_col: str,
     round_lot: int,
     capital: Union[float, None] = None  # K
 ) -> pd.DataFrame:
@@ -1013,9 +1125,6 @@ def get_position_size(
     :param capital: total value of account
     :param data:
     :param constant_risk:
-    :param constant_weight:
-    :param signal_col:
-    :param stop_loss_col:
     :return:
     """
     data_cpy = data.copy()
@@ -1032,22 +1141,6 @@ def get_position_size(
         round_lot=round_lot,
         fx_rate=1
     )
-    # eqty_risk_lot = get_round_lot(
-    #     weight=data_cpy.eqty_risk,
-    #     capital=data_cpy.equity_at_risk,
-    #     fx_rate=1,
-    #     price_local=data_cpy.b_close,
-    #     roundlot=round_lot
-    # )
-
-    # equal_weight_lot = get_round_lot(
-    #     weight=constant_weight,
-    #     capital=data_cpy.equal_weight,
-    #     fx_rate=1,
-    #     price_local=data_cpy.b_close,
-    #     roundlot=round_lot
-    # )
-    # data_cpy.equal_weight_lot = equal_weight_lot
 
     return data_cpy
 

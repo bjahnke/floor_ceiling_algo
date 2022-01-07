@@ -24,6 +24,7 @@ setup(
         'yfinance',
         'schedule',
         'w3rw @ git+https://github.com/teleprint-me/w3rw.git#egg=w3rw',
-        'coinbase-pro @ git+https://github.com/teleprint-me/coinbase-pro.git#egg=coinbase-pro'
+        'coinbase-pro @ git+https://github.com/teleprint-me/coinbase-pro.git#egg=coinbase-pro',
+        'pyarrow'
     ]
 )

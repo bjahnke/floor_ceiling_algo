@@ -99,7 +99,7 @@ class AccountInfo:
     def __init__(self, positions: t.Dict, equity):
         self._positions = positions
         self._equity = equity
-    
+
     @property
     def positions(self) -> t.Dict[str, Position]:
         return self._positions
@@ -326,22 +326,22 @@ class CbProTickerStream(AbstractTickerStream):
         """
         symbol_delays = get_data_delays(symbols, self._interval, 5)
         self._init_stream_parsers(symbol_delays)
-        msg_queue = self._init_processes(symbols)
+        send_conn = self._init_processes()
         stream, subscribe_msg = stream_generator(symbols)
-        last_subscribe = time() - 5
-        send_subscribe = True
+        stream.send(subscribe_msg)
+        current_quotes = {symbol: None for symbol in symbols}
+        cached_msgs = {symbol: None for symbol in symbols}
         while True:
-            # if send_subscribe:
-            #     last_subscribe = time()
-            #     stream.send(subscribe_msg)
-            #
-            # send_subscribe = time() - last_subscribe > 3
-
             msg = stream.receive()
             symbol = self.get_symbol(msg)
-            if symbol is not None:
-                print(msg)
-                msg_queue.put(msg)
+            if symbol is not None and msg['price'] != cached_msgs[symbol]:
+                cached_msgs[symbol] = msg['price']
+                self._stream_parsers[symbol].update_ohlc_state(msg)
+                ohlc_data = self._stream_parsers[symbol].get_ohlc()
+                if ohlc_data != current_quotes[symbol]:
+                    current_quotes[symbol] = ohlc_data
+                    # pprint(current_quotes)
+                    send_conn.send(current_quotes)
 
     @staticmethod
     def get_symbol(msg):

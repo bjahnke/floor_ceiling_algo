@@ -96,7 +96,8 @@ def fc_scan_symbol(
         scan_out_info: ScanOutInfo,
         bench_data: pd.DataFrame = None,
         freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
-        side=None
+        side=None,
+        round_lot=1,
 ):
     """helper, scans one symbol, outputs data to files, returns scan results"""
 
@@ -117,7 +118,9 @@ def fc_scan_symbol(
     price_data, stats = fc_data_gen.init_fc_data(
         base_symbol=symbol,
         price_data=price_data,
-        equity=account_info.equity
+        equity=account_info.equity,
+        side=side,
+        round_lot=round_lot
     )
 
     last_signal = price_data.signals.slices()[-1]
@@ -125,6 +128,7 @@ def fc_scan_symbol(
     cum_returns_total = price_data.signals.cumulative_returns()
     print(f'{symbol} all returns: {cum_returns_total[-1]}')
     print(f'{symbol} last signal returns: {cum_returns[-1]}')
+
 
     back_test_utils.graph_regime_fc(
         ticker=symbol,
@@ -156,6 +160,10 @@ def fc_scan_symbol(
         side=side
     )
     stats = stats.sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
+    scan_result['score'] = stats.risk_adjusted_returns.iloc[-1]
+    score = scan_result['score']
+    print(f'{symbol} score: {score}')
+    print(f'{symbol} trades: {stats.trades.iloc[-1]}')
     try:
         scan_result['st'] = stats.st.iloc[-1]
         scan_result['mt'] = stats.mt.iloc[-1]
@@ -178,7 +186,8 @@ def fc_scan_all(
 
         close_range: Range = Range(),
         volume_range: Range = Range(),
-        side=None
+        side=None,
+        round_lot=1,
 ) -> t.List[t.Dict]:
     """
     scans all given symbols. builds overview report of scan results.
@@ -217,7 +226,8 @@ def fc_scan_all(
                 bench_data=bench_data,
                 freq_range=freq_range,
                 scan_out_info=scan_out_info,
-                side=side
+                side=side,
+                round_lot=round_lot
             )
 
             # TODO turn into class attribute when scanner becomes class
@@ -272,9 +282,6 @@ def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
         'mt',
         'cum_absolute_returns',
         'score',
-        'close',
-        'position_size',
-        'stop_loss_base',
     ]]
     # Sort columns by regime change date
     market_regime.sort_values(
@@ -311,17 +318,17 @@ def regime_scan(
 
     cumulative_absolute_returns = price_data.signals.cumulative_returns(side)[-1]
 
-    position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
+    # position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
 
     return {
         'signal': price_data.signal[-1],
         'signal_start': signal_start_data,
         # 'r_returns_last': cumulative_relative_returns,  # returns since last regime change (relative price)
         'cum_absolute_returns': cumulative_absolute_returns,  # returns since last regime change (base price)
-        'score': price_data.score[-1],
-        'close': price_data.b_close[-1],
-        'position_size': position_size,
-        'stop_loss_base': price_data.stop_loss_base[-1]
+        # 'score': price_data.score[-1],
+        # 'close': price_data.b_close[-1],
+        # 'position_size': position_size,
+        # 'stop_loss_base': price_data.stop_loss_base[-1]
     }
 
 
@@ -341,7 +348,8 @@ def main(
     bench: str = None,
     close_range: Range = Range(),
     volume_range: Range = Range(),
-    side=None
+    side=None,
+    round_lot: t.Union[int, None] = 1
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     global raw_scan_results
@@ -350,11 +358,11 @@ def main(
     def post_process(raw_scan_res: t.List[t.Dict]):
         scan_out: pd.DataFrame = format_scan_results(raw_scan_res)
         # add columns post process for convenience
-        scan_out['true_size'] = scan_out.position_size * scan_out.signal
-        scan_out['trade_val'] = scan_out.true_size * scan_out.close
-        scan_out['trade_risk'] = (
-            (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
-        )
+        # scan_out['true_size'] = scan_out.position_size * scan_out.signal
+        # scan_out['trade_val'] = scan_out.true_size * scan_out.close
+        # scan_out['trade_risk'] = (
+        #     (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
+        # )
         scan_out = scan_out.sort_values(by='score', ascending=False)
         all_price_data.to_csv(scan_out_info.data_fp)
         scan_results_to_excel(scan_out, scan_out_info.report_fp)
@@ -368,7 +376,8 @@ def main(
             close_range=close_range,
             volume_range=volume_range,
             scan_out_info=scan_out_info,
-            side=side
+            side=side,
+            round_lot=round_lot
         )
     except:
         # output existing results if any uncaught exception occurs

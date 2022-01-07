@@ -63,9 +63,10 @@ def init_fc_data(
         st_dev_window: int = 63,  #
         st_list: t.Union[range, int] = range(10, 101, 10),
         mt_list: t.Union[range, int] = range(160, 201, 20),
-        round_lot: int = 1,
+        round_lot: t.Union[None, int] = 1,
         constant_risk: float = 0.25 / 100,
         constant_weight: float = 3 / 100,
+        side=None
 ) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     """
 
@@ -124,7 +125,7 @@ def init_fc_data(
     else:
         ma_pairs = [(st_list, mt_list)]
 
-    price_data, stats = btu.init_fc_signal_stoploss(
+    price_data, scoreboard = btu.init_fc_signal_stoploss(
         fc_data=price_data,
         symbol=base_symbol,
         base_close='b_close',
@@ -135,6 +136,7 @@ def init_fc_data(
         min_periods=min_periods,
         window=window,
         limit=limit,
+        side=side,
     )
     if price_data is None:
         raise FcLosesToBuyHoldError(f'{base_symbol} Floor/Ceiling does not beat buy and hold')
@@ -143,27 +145,32 @@ def init_fc_data(
     price_data['floor'] = price_data.loc[price_data.regime_floorceiling == 1, 'regime_change']
 
     price_data['eqty_risk_lot'] = 0
-    price_data['equal_weight_lot'] = 0
+    # price_data['equal_weight_lot'] = 0
 
     # don't waste time on pandas operations if there are no signals to
     # produce positions sizes
-    if len(price_data.signals.slices()) > 0:
+    if price_data.signals.count > 0:
         price_data = btu.get_position_size(
             data=price_data,
-            # TODO resolve difference
             capital=equity,
             constant_risk=constant_risk,
-            constant_weight=constant_weight,
-            stop_loss_col='stop_loss',
+            # constant_weight=constant_weight,
+            # stop_loss_col='stop_loss',
             round_lot=round_lot
         )
     else:
-        # todo should return dataframe with empty signal col?
         raise NoSignalsError(f'{base_symbol} No signals generated')
 
     # price_data[['close', 'b_close', 'signal', 'stop_loss']].plot()
+    # TODO is filling na on signal column redundant?
     price_data.signal = price_data.signal.fillna(0)
-    return price_data, stats
+
+    try:
+        price_data.reset_index().to_feather(fr'C:\algo_data_store\strategy_data\strategy_data\{base_symbol}.ftr')
+    except Exception as e:
+        print(f'TODO catch exception {e}')
+
+    return price_data, scoreboard
 
 
 def create_relative_data(
