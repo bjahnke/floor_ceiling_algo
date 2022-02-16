@@ -769,15 +769,14 @@ class TrailStop:
     cum_extreme: str
     dir: int
 
-    def init_trail_stop(self, price: pd.DataFrame, trail_stop_date, entry_price, offset_pct):
+    def init_trail_stop(self, price: pd.DataFrame, initial_trail_price, entry_price) -> pd.Series:
         """
         :param price:
-        :param trail_stop_date:
+        :param initial_trail_price:
         :param entry_price:
         :param offset_pct: distance from the discovery peak to set the stop loss
         :return:
         """
-        initial_trail_price = self.get_stop_price(price, trail_stop_date, offset_pct)
         trail_pct_from_entry = (entry_price - initial_trail_price) / entry_price
         extremes = price[self.pos_price_col]
         # high/low of entry happened prior to entry (close), don't include
@@ -786,48 +785,57 @@ class TrailStop:
         # when short, pct should be negative, pushing modifier above one
         trail_modifier = 1 - trail_pct_from_entry
         # trail stop reaction must be delayed one bar since same bar reaction cannot be determined
-        trail_stop = (getattr(extremes, self.cum_extreme)() * trail_modifier).shift(1)
+        trail_stop: pd.Series = (getattr(extremes, self.cum_extreme)() * trail_modifier).shift(1)
         trail_stop.iat[0] = initial_trail_price
-        exit_signal = self.exit_signal(price[self.neg_price_col], trail_stop)
 
-        return pd.DataFrame({
-            'trail_stop_val': trail_stop,
-            'exit_signal': exit_signal
-        })
+        return trail_stop
 
-    def exit_signal(self, worst_prices: pd.Series, trail_stop: pd.Series):
-        return ((trail_stop - worst_prices) * self.dir) >= 0
+    def exit_signal(self, price: pd.DataFrame, trail_stop: pd.Series) -> pd.Series:
+        """detect where price has crossed price"""
+        return ((trail_stop - price[self.neg_price_col]) * self.dir) >= 0
 
-    def get_target_price(self, price, fixed_stop_date, entry_price: float, r_multiplier, offset_pct) -> float:
-        """
-        :param entry_price:
-        :param price:
-        :param offset_pct:
-        :param fixed_stop_date:
-        :param r_multiplier: multiplier to apply to distance from entry and stop loss
-        :return:
-        """
-        stop_price = self.get_stop_price(price, fixed_stop_date, offset_pct)
-        return entry_price + ((entry_price - stop_price) * r_multiplier)
+    def target_exit_signal(self, price: pd.DataFrame, target_price) -> pd.Series:
+        """detect where price has crossed price"""
+        return ((target_price - price[self.pos_price_col]) * self.dir) >= 0
 
     def get_stop_price(self, price: pd.DataFrame, stop_date, offset_pct: float) -> float:
         """calculate stop price given a date and percent to offset the stop point from the peak"""
         pct_from_peak = 1 - (offset_pct * self.dir)
         return price[self.neg_price_col].at(stop_date) * pct_from_peak
 
-    def cap_trail_stop(self, price: pd.DataFrame, trail_data, cap_price) -> pd.DataFrame:
+    def cap_trail_stop(self, trail_data: pd.Series, cap_price) -> pd.Series:
         """apply cap to trail stop"""
-        trail_data['trail_stop_val'].loc[
-            ((trail_data['trail_stop_val'] - cap_price) * self.dir) > 0
+        trail_data.loc[
+            ((trail_data - cap_price) * self.dir) > 0
         ] = cap_price
-        trail_data['exit_signal'] = self.exit_signal(price[self.neg_price_col], trail_data['trail_stop_val'])
         return trail_data
 
-    def reset_stop_to_fixed(self):
-        pass
+
+def get_target_price(stop_price, entry_price, r_multiplier):
+    """
+    get target price derived from distance from entry to stop loss times r
+    :param entry_price:
+    :param stop_price:
+    :param r_multiplier: multiplier to apply to distance from entry and stop loss
+    :return:
+    """
+    return entry_price + ((entry_price - stop_price) * r_multiplier)
 
 
-def draw_trail_stop(price, regimes, signal_candidates, r_multiplier):
+def draw_stop_line(
+    price, direction, trail_stop_date, fixed_stop_date, entry_price, offset_pct, target_price):
+    """
+    trail stop to entry price, then reset to fixed stop price after target price is reached
+    :param target_price:
+    :param price:
+    :param direction:
+    :param trail_stop_date:
+    :param fixed_stop_date:
+    :param entry_price:
+    :param offset_pct:
+    :return:
+    """
+
     trail_map = {
         1: TrailStop(
             pos_price_col='high',
@@ -843,7 +851,24 @@ def draw_trail_stop(price, regimes, signal_candidates, r_multiplier):
         ),
     }
 
+    stop_calc = trail_map[direction]
 
+    trail_price = stop_calc.get_stop_price(price, trail_stop_date, offset_pct)
+    stop_line = stop_calc.init_trail_stop(price, trail_price, entry_price)
+    stop_line = stop_calc.cap_trail_stop(stop_line, entry_price)
+
+    fixed_stop_price = stop_calc.get_stop_price(price, fixed_stop_date, offset_pct)
+    # target_price = get_target_price(fixed_stop_price, entry_price, r_multiplier)
+    target_exit_signal = stop_calc.target_exit_signal(price, target_price)
+    partial_exit_date = stop_line.loc[target_exit_signal].first_valid_index()
+
+    if partial_exit_date is not None:
+        stop_line.loc[partial_exit_date:] = fixed_stop_price
+
+    stop_loss_exit_signal = stop_calc.exit_signal(price, stop_line)
+    exit_signal_date = stop_line.loc[stop_loss_exit_signal].first_valid_index()
+
+    return stop_line, exit_signal_date, partial_exit_date, stop_loss_exit_signal
 
 
 def process_signal_data(price_data: pd.DataFrame, raw_signals: pd.DataFrame):
