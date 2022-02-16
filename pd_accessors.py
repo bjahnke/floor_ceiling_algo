@@ -11,11 +11,10 @@ from datetime import datetime, timedelta
 import operator as op
 
 
-def _validate(df: pd.DataFrame, mandatory_cols):
-    """"""
-    col_not_found = [col for col in mandatory_cols if col not in df.columns.to_list()]
+def _validate(items: t.List[str], mandatory: t.List[str]):
+    col_not_found = [col for col in mandatory if col not in items]
     if col_not_found:
-        raise AttributeError(f'{col_not_found} expected in DataFrame')
+        raise AttributeError(f'{col_not_found} expected but not found')
 
 
 class DfAccessorBase(metaclass=ABCMeta):
@@ -27,7 +26,19 @@ class DfAccessorBase(metaclass=ABCMeta):
 
     @classmethod
     def _validate(cls, df: pd.DataFrame):
-        _validate(df, cls.mandatory_cols)
+        _validate(df.columns.to_list(), cls.mandatory_cols)
+
+
+class SeriesAccessorBase(metaclass=ABCMeta):
+    mandatory_cols: t.List[str]
+
+    def __init__(self, obj: pd.Series):
+        self._validate(obj)
+        self._obj = obj
+
+    @classmethod
+    def _validate(cls, obj: pd.Series):
+        _validate(obj.index.to_list(), cls.mandatory_cols)
 
 
 @pd.api.extensions.register_series_accessor('price_opr')
@@ -344,6 +355,7 @@ class StopLoss(DfAccessorBase):
                 extremes.iat[0] = entry_price
                 cum_extreme = extremes.cummin()
 
+
             # shift back to
             cum_delta_from_entry = (cum_extreme - entry_price)
             # stop loss increases/decreases by the current cumulative extreme from the beginning stop loss
@@ -489,18 +501,36 @@ def ends_na(df, col) -> pd.Series:
     return df[pd.isna(df[col].shift(-1)) & pd.notna(df[col])]
 
 
-
-
 def regime_slices(df, regime_col, regime_val=None):
+
     assert regime_val in [1, -1, None]
 
     starts = starts_na(df, regime_col)
     ends = ends_na(df, regime_col)
     res = []
-
     for i, end_date in enumerate(ends.index.to_list()):
         data_slice = df.loc[starts.index[i]: end_date]
         if regime_val is not None and data_slice[regime_col].iloc[0] == regime_val:
             res.append(data_slice)
 
     return res
+
+
+@pd.api.extensions.register_series_accessor('pivot_row')
+class PivotRow(SeriesAccessorBase):
+    mandatory_cols = [
+        'start',
+        'end',
+        'rg'
+    ]
+
+    def __init__(self, obj: pd.Series):
+        super().__init__(obj)
+
+    def slice(self, dates: pd.Series):
+        """
+        query for dates between the self._obj pivot rows start and end dates
+        TODO, option for inclusive/exclusive
+        :return:
+        """
+        return (self._obj.start < dates) & (dates < self._obj.end)

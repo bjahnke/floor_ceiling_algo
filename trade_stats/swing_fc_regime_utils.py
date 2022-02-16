@@ -1,5 +1,6 @@
+from dataclasses import dataclass
 from datetime import datetime, timedelta
-
+import typing as t
 import numpy as np
 import pandas as pd
 from matplotlib import pyplot as plt
@@ -537,41 +538,67 @@ def historical_peak_discovery(df):
     pass
 
 
-def full_peak_lag(df, asc_peaks) -> pd.Series:
+def full_peak_lag(df, asc_peaks) -> pd.DataFrame:
     """
     calculates distance from highest level peak to the time it was discovered
+    value is not nan if peak, does not matter if swing low or swing high
     :param df:
-    :param asc_peaks:
+    :param asc_peaks: peak level columns in ascending order
     :return:
     """
-    highest_peak = df[asc_peaks[-1]]
-    prior_peaks = df[asc_peaks[-2]]
-    follow_peaks = get_follow_peaks(highest_peak, prior_peaks)
-    i = len(asc_peaks) - 3
-    while i >= 0:
-        prior_peaks = df[asc_peaks[i]]
-        follow_peaks = get_follow_peaks(follow_peaks, prior_peaks)
-        i -= 1
-    follow_peaks = follow_peaks.dropna()
-    lag = pd.Series(index=df.index)
-    for i, r in enumerate(highest_peak.dropna().iteritems()):
-        highest_swing_date = r[0]
-        highest_swing_value = r[1]
-        follow_peak = follow_peaks.iloc[i:i+1]
-        if len(follow_peak) > 0:
-            lag.loc[highest_swing_date: follow_peak.index[0]] = highest_swing_value
+    # desire lag for all peak levels greater than 1,
+    # so if [hi1, hi2, hi3] given,
+    # group by [[hi1, hi2], [hi1, hi2, hi3]] to get lag for level 2 and level 3
+    lag_groups = []
+    for end_idx in range(1, len(asc_peaks)):
+        lag_group = [asc_peaks[i] for i in range(end_idx+1)]
+        lag_groups.append(lag_group)
+    full_pivot_table = pd.DataFrame(columns=['start', 'end', 'type'])
 
-    return lag
+    for lag_group in lag_groups:
+        highest_peak_col = lag_group[-1]
+        highest_peak = df[highest_peak_col]
+        prior_peaks = df[lag_group[-2]]
+
+        # will hold the lowest level peaks
+        follow_peaks, lag_pivot_table = get_follow_peaks(highest_peak, prior_peaks)
+        i = len(lag_group) - 3
+        while i >= 0:
+            lag_pivot_table = lag_pivot_table.drop(columns=[prior_peaks.name])
+            prior_peaks_col = lag_group[i]
+            prior_peaks = df[prior_peaks_col]
+            follow_peaks, short_lag_pivot_table = get_follow_peaks(follow_peaks, prior_peaks)
+            lag_pivot_table[prior_peaks_col] = short_lag_pivot_table[prior_peaks_col]
+
+            i -= 1
+        lag_pivot_table = lag_pivot_table.melt(
+            id_vars=[prior_peaks.name],
+            value_vars=[highest_peak_col],
+            var_name='type',
+            value_name='start',
+        )
+        lag_pivot_table = lag_pivot_table.rename(columns={prior_peaks.name: 'end'})
+        full_pivot_table = pd.concat([full_pivot_table, lag_pivot_table])
+
+    full_pivot_table = full_pivot_table[['start', 'end', 'type']].reset_index(drop=True)
+    full_pivot_table['lvl'] = pd.to_numeric(full_pivot_table.type.str.slice(start=-1))
+    full_pivot_table['type'] = np.where(
+        full_pivot_table.type.str.slice(stop=-1) == 'hi', -1, 1
+    )
+    return full_pivot_table
 
 
-def get_follow_peaks(current_peak: pd.Series, prior_peaks: pd.Series) -> pd.Series:
+def get_follow_peaks(current_peak: pd.Series, prior_peaks: pd.Series) -> t.Tuple[pd.Series, pd.DataFrame]:
     """
-    determines the lag all peaks in current peak
+    calculates lage between current peak and next level peak.
+    helper function, must be used sequentially from current level down to lvl 1 peak
+    to get full lag
     :param df:
     :param current_peak:
     :param prior_peaks:
     :return:
     """
+    pivot_table = pd.DataFrame(columns=[current_peak.name, prior_peaks.name])
     follow_peaks = pd.Series(index=current_peak.index)
 
     for r in current_peak.dropna().iteritems():
@@ -581,8 +608,14 @@ def get_follow_peaks(current_peak: pd.Series, prior_peaks: pd.Series) -> pd.Seri
         follow_peak = prior_peaks.loc[current_peak_date:].iloc[1:].dropna().iloc[:1]
         if len(follow_peak) > 0:
             follow_peaks.loc[follow_peak.index[0]] = follow_peak.iloc[0]
-
-    return follow_peaks
+            pivot_table = pivot_table.append(
+                {
+                    current_peak.name: current_peak_date,
+                    prior_peaks.name: follow_peak.index[0]
+                },
+                ignore_index=True
+            )
+    return follow_peaks, pivot_table
 
 
 def raw_swing_signals(df, swing_lag_col: str, regime_col: str, regime_val: int):
@@ -632,13 +665,224 @@ def signal_generator(df):
     pass
 
 
+def unpivot(pivot_table: pd.DataFrame, start_date_col: str, end_date_col: str, new_date_col='date'):
+    """unpivot the given table given start and end dates"""
+    unpivot_table = pivot_table.copy()
+    unpivot_table[new_date_col] = unpivot_table.apply(
+        lambda x: pd.date_range(x[start_date_col], x[end_date_col]),
+        axis=1
+    )
+    unpivot_table = (
+        unpivot_table.explode(new_date_col, ignore_index=True).drop(columns=[start_date_col, end_date_col])
+    )
+    return unpivot_table
+
+
+def regime_ranges(df, rg_col: str):
+    start_col = 'start'
+    end_col = 'end'
+    loop_params = [(start_col, df[rg_col].shift(1)), (end_col, df[rg_col].shift(-1))]
+    boundaries = {}
+    for name, shift in loop_params:
+        rg_boundary = df[rg_col].loc[
+            (
+                (df[rg_col] == -1) &
+                (pd.isna(shift) | (shift != -1))
+            ) |
+            (
+                (df[rg_col] == 1) &
+                ((pd.isna(shift)) | (shift != 1))
+            )
+        ]
+        rg_df = pd.DataFrame(data={rg_col: rg_boundary})
+        rg_df.index.name = name
+        rg_df = rg_df.reset_index()
+        boundaries[name] = rg_df
+
+    boundaries[start_col][end_col] = boundaries[end_col][end_col]
+    return boundaries[start_col][[start_col, end_col, rg_col]]
+
+
+def get_entry_candidates(
+    regimes: pd.DataFrame,
+    peaks: pd.DataFrame,
+    entry_lvls: t.List[int],
+    highest_peak_lvl: int,
+    partial_exit_r=1.5
+):
+    """
+    set fixed stop for first signal in each regime to the recent lvl 3 peak
+    build raw signal table, contains entry signal date and direction of trade
+    regimes: start(date), end(date), rg(date)
+    TODO
+        - add fixed_stop_date to output
+        - add trail_stop_date to output
+    peaks: start(date: peak location), end(date: peak discovery), type
+    :param partial_exit_r:
+    :param highest_peak_lvl:
+    :param entry_lvls:
+    :param peaks:
+    :param regimes:
+    :return: raw_signals_df: entry, fixed stop, trail stop, dir
+    """
+
+    raw_signals_list = []
+
+    # rename the table prior to collecting entries
+    entry_table = peaks.rename(columns={'start': 'trail_stop', 'end': 'entry'})
+
+    for rg_idx, rg_info in regimes.iterrows():
+        rg_entries = entry_table.loc[
+            rg_info.pivot_row.slice(peaks.end) &
+            rg_info.pivot_row.slice(peaks.start) &
+            (entry_table.type == rg_info.rg) &
+            (entry_table.lvl.isin(entry_lvls))
+        ].copy()
+
+        # set 'start'
+        rg_entries['dir'] = rg_info.rg
+        rg_entries['fixed_stop'] = rg_entries.trail_stop
+        rg_entries = rg_entries.sort_values(by='trail_stop')
+        first_sig = rg_entries.iloc[0]
+        peaks_since_first_sig = entry_table.loc[entry_table.trail_stop < first_sig.trail_stop]
+        prior_major_peaks = peaks_since_first_sig.loc[
+            (peaks_since_first_sig.lvl == highest_peak_lvl) &
+            (peaks_since_first_sig.type == first_sig.type)
+        ]
+        rg_entries.fixed_stop.iat[0] = prior_major_peaks.trail_stop.iat[-1]
+        raw_signals_list.append(rg_entries)
+
+    signal_candidates = pd.concat(raw_signals_list).reset_index(drop=True)
+    signal_candidates = signal_candidates.rename(columns={'start': 'trail_stop', 'end': 'entry'})
+    signal_candidates = signal_candidates.drop(columns=['lvl', 'type'])
+    return signal_candidates
+
+@dataclass
+class TrailStop:
+    """
+    pos_price_col: price column to base trail stop movement off of
+    neg_price_col: price column to check if stop was crossed
+    cum_extreme: cummin/cummax, name of function to use to calculate trailing stop direction
+    """
+    neg_price_col: str
+    pos_price_col: str
+    cum_extreme: str
+    dir: int
+
+    def init_trail_stop(self, price: pd.DataFrame, trail_stop_date, entry_price, offset_pct):
+        """
+        :param price:
+        :param trail_stop_date:
+        :param entry_price:
+        :param offset_pct: distance from the discovery peak to set the stop loss
+        :return:
+        """
+        initial_trail_price = self.get_stop_price(price, trail_stop_date, offset_pct)
+        trail_pct_from_entry = (entry_price - initial_trail_price) / entry_price
+        extremes = price[self.pos_price_col]
+        # high/low of entry happened prior to entry (close), don't include
+        extremes.iat[0] = entry_price
+
+        # when short, pct should be negative, pushing modifier above one
+        trail_modifier = 1 - trail_pct_from_entry
+        # trail stop reaction must be delayed one bar since same bar reaction cannot be determined
+        trail_stop = (getattr(extremes, self.cum_extreme)() * trail_modifier).shift(1)
+        trail_stop.iat[0] = initial_trail_price
+        exit_signal = self.exit_signal(price[self.neg_price_col], trail_stop)
+
+        return pd.DataFrame({
+            'trail_stop_val': trail_stop,
+            'exit_signal': exit_signal
+        })
+
+    def exit_signal(self, worst_prices: pd.Series, trail_stop: pd.Series):
+        return ((trail_stop - worst_prices) * self.dir) >= 0
+
+    def get_target_price(self, price, fixed_stop_date, entry_price: float, r_multiplier, offset_pct) -> float:
+        """
+        :param entry_price:
+        :param price:
+        :param offset_pct:
+        :param fixed_stop_date:
+        :param r_multiplier: multiplier to apply to distance from entry and stop loss
+        :return:
+        """
+        stop_price = self.get_stop_price(price, fixed_stop_date, offset_pct)
+        return entry_price + ((entry_price - stop_price) * r_multiplier)
+
+    def get_stop_price(self, price: pd.DataFrame, stop_date, offset_pct: float) -> float:
+        """calculate stop price given a date and percent to offset the stop point from the peak"""
+        pct_from_peak = 1 - (offset_pct * self.dir)
+        return price[self.neg_price_col].at(stop_date) * pct_from_peak
+
+    def cap_trail_stop(self, price: pd.DataFrame, trail_data, cap_price) -> pd.DataFrame:
+        """apply cap to trail stop"""
+        trail_data['trail_stop_val'].loc[
+            ((trail_data['trail_stop_val'] - cap_price) * self.dir) > 0
+        ] = cap_price
+        trail_data['exit_signal'] = self.exit_signal(price[self.neg_price_col], trail_data['trail_stop_val'])
+        return trail_data
+
+    def reset_stop_to_fixed(self):
+        pass
+
+
+def draw_trail_stop(price, regimes, signal_candidates, r_multiplier):
+    trail_map = {
+        1: TrailStop(
+            pos_price_col='high',
+            neg_price_col='low',
+            cum_extreme='cummax',
+            dir=1
+        ),
+        -1: TrailStop(
+            pos_price_col='low',
+            neg_price_col='high',
+            cum_extreme='cummin',
+            dir=-1
+        ),
+    }
+
+
+
+
+def process_signal_data(price_data: pd.DataFrame, raw_signals: pd.DataFrame):
+        # for s_idx, entry_info in rg_entries.iterrows():
+            """
+            TODO:
+                - set stop loss
+                    - if first signal, 
+                        - set fixed at all time peak
+                    - else:
+                        - set fixed at local peak
+                    - set trailing at local peak
+                    - TODO add some constant trail_offset to trailing stop to start it just above local peak
+                
+                _ TODO does trail stop end at cost? or goes until partial exit?
+                - calculate partial exit price
+                
+                        
+                - set signal to rg value
+                - crop signal where price crosses 
+            """
+
+
 if __name__ == '__main__':
     ticker = 'AAPL'
-    data = yf.ticker.Ticker(ticker).history(
-        start=(datetime.now() - timedelta(days=50)),
-        end=datetime.now(),
-        interval='15m'
-    )
+    try:
+        data = yf.ticker.Ticker(ticker).history(
+            start=(datetime.now() - timedelta(days=58)),
+            end=datetime.now(),
+            interval='15m'
+        )
+    # if no internet, use cached data
+    except:
+        data = pd.read_excel('data.xlsx')
+    else:
+        data = data.tz_localize(None)
+        data.to_excel('data.xlsx')
+
+
     data = data.rename(columns={'Open': 'open', 'High': 'high', 'Low': 'low', 'Close': 'close'})
     data = data[['open', 'high', 'low', 'close']]
     _open = 'open'
@@ -671,8 +915,9 @@ if __name__ == '__main__':
         lvl=sw_lvl
     )
 
-    ndf['lag'] = full_peak_lag(ndf, ['hi1', 'hi2'])
-
+    hi_peak_table = full_peak_lag(ndf, ['hi1', 'hi2', 'hi3'])
+    lo_peak_table = full_peak_lag(ndf, ['lo1', 'lo2', 'lo3'])
+    peak_table = pd.concat([hi_peak_table, lo_peak_table]).reset_index(drop=True)
 
     ndf = regime_floor_ceiling(
         df=ndf,
@@ -685,6 +930,10 @@ if __name__ == '__main__':
         stdev=standard_dev,
         threshold=regime_threshold
     )
+
+    rg_table = regime_ranges(ndf, 'rg')
+    raw_signals = get_entry_candidates(rg_table, peak_table, [2], 3)
+
 
     a = ndf[[_close, shi_col, slo_col, 'clg', 'flr', 'rg_ch', 'hi2', 'lo2']].plot(
         style=['grey', 'ro', 'go', 'kv', 'k^', 'c:', 'r.', 'g.'],
@@ -766,7 +1015,8 @@ title = str.upper(ticker))
                 lo2_lag = d.lo2.copy()
             else:
                 fp_rg = fp_rg.reindex(d.rg.index)
-                fp_rg.loc[idx] = d.rg.loc[pd.isna(fp_rg)]
+                new_val = d.rg.loc[pd.isna(fp_rg)][0]
+                fp_rg.loc[idx] = new_val
 
                 hi2_lag = update_sw_lag(hi2_lag, d.hi2, hi2_discovery_dts)
                 lo2_lag = update_sw_lag(lo2_lag, d.lo2, lo2_discovery_dts)
