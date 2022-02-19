@@ -23,6 +23,7 @@ class FaultReceivedError(Exception):
 
 class Side(Enum):
     """Used to express signals and trade direction in natural language"""
+
     LONG = 1
     SHORT = -1
     CLOSE = 0
@@ -33,8 +34,8 @@ class Side(Enum):
         provides additional mappings of enum values
         """
         enum_map = {
-            'BUY': cls.LONG,
-            'SELL_SHORT': cls.SHORT,
+            "BUY": cls.LONG,
+            "SELL_SHORT": cls.SHORT,
         }
         if (res := enum_map.get(value, None)) is None:
             if np.isnan(value):
@@ -68,4 +69,3 @@ class SignalStatus(Enum):
         if (res := signal_status_selector.get(value, None)) is None:
             res = super()._missing_(value)
         return res
-

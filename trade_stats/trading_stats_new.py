@@ -21,54 +21,52 @@ def expanding_grit(cumul_returns):
 def rolling_profits(returns, window):
     profit_roll = returns.copy()
     profit_roll[profit_roll < 0] = 0
-    profit_roll_sum = profit_roll.rolling(window).sum().fillna(method='ffill')
+    profit_roll_sum = profit_roll.rolling(window).sum().fillna(method="ffill")
     return profit_roll_sum
 
 
 def rolling_losses(returns, window):
     loss_roll = returns.copy()
     loss_roll[loss_roll > 0] = 0
-    loss_roll_sum = loss_roll.rolling(window).sum().fillna(method='ffill')
+    loss_roll_sum = loss_roll.rolling(window).sum().fillna(method="ffill")
     return loss_roll_sum
 
 
 def expanding_profits(returns):
     profit_roll = returns.copy()
     profit_roll[profit_roll < 0] = 0
-    profit_roll_sum = profit_roll.expanding().sum().fillna(method='ffill')
+    profit_roll_sum = profit_roll.expanding().sum().fillna(method="ffill")
     return profit_roll_sum
 
 
 def expanding_losses(returns):
     loss_roll = returns.copy()
     loss_roll[loss_roll > 0] = 0
-    loss_roll_sum = loss_roll.expanding().sum().fillna(method='ffill')
+    loss_roll_sum = loss_roll.expanding().sum().fillna(method="ffill")
     return loss_roll_sum
 
 
 def profit_ratio(profits, losses):
-    pr = profits.fillna(method='ffill') / abs(losses.fillna(method='ffill'))
+    pr = profits.fillna(method="ffill") / abs(losses.fillna(method="ffill"))
     return pr
 
 
 def rolling_profit_ratio(returns, window):
     return profit_ratio(
-        profits=rolling_profits(returns, window),
-        losses=rolling_losses(returns, window)
+        profits=rolling_profits(returns, window), losses=rolling_losses(returns, window)
     )
 
 
 def expanding_profit_ratio(returns):
     return profit_ratio(
-        profits=expanding_profits(returns),
-        losses=expanding_losses(returns)
+        profits=expanding_profits(returns), losses=expanding_losses(returns)
     )
 
 
 def rolling_tail_ratio(cumul_returns, window, percentile, limit):
     left_tail = np.abs(cumul_returns.rolling(window).quantile(percentile))
     right_tail = cumul_returns.rolling(window).quantile(1 - percentile)
-    np.seterr(all='ignore')
+    np.seterr(all="ignore")
     tail = np.maximum(np.minimum(right_tail / left_tail, limit), -limit)
     return tail
 
@@ -76,7 +74,7 @@ def rolling_tail_ratio(cumul_returns, window, percentile, limit):
 def expanding_tail_ratio(cumul_returns, percentile, limit):
     left_tail = np.abs(cumul_returns.expanding().quantile(percentile))
     right_tail = cumul_returns.expanding().quantile(1 - percentile)
-    np.seterr(all='ignore')
+    np.seterr(all="ignore")
     tail = np.maximum(np.minimum(right_tail / left_tail, limit), -limit)
     return tail
 
@@ -101,10 +99,12 @@ def robustness_score(grit, csr, sqn):
         start_date = max(
             grit[pd.notnull(grit)].index[0],
             csr[pd.notnull(csr)].index[0],
-            sqn[pd.notnull(sqn)].index[0]
+            sqn[pd.notnull(sqn)].index[0],
         )
     except IndexError:
         score = pd.Series(data=np.NaN, index=grit.index)
     else:
-        score = grit * csr * sqn / (grit[start_date] * csr[start_date] * sqn[start_date])
+        score = (
+            grit * csr * sqn / (grit[start_date] * csr[start_date] * sqn[start_date])
+        )
     return score

@@ -37,20 +37,20 @@ class ScanOutInfo:
     _price_data_name: str
 
     def __post_init__(self):
-        assert self._report_name[-5:] == '.xlsx'
-        assert self._price_data_name[-4:] == '.csv'
+        assert self._report_name[-5:] == ".xlsx"
+        assert self._price_data_name[-4:] == ".csv"
 
     @property
     def report_fp(self):
         """report file path"""
-        return fr'{self._out_dir}\{self._report_name}'
+        return fr"{self._out_dir}\{self._report_name}"
 
     @property
     def data_fp(self):
-        return fr'{self._out_dir}\{self._price_data_name}'
+        return fr"{self._out_dir}\{self._price_data_name}"
 
     def png_fp(self, file_name):
-        return fr'{self._png_dir}\{file_name}'
+        return fr"{self._png_dir}\{file_name}"
 
 
 @dataclass
@@ -64,12 +64,11 @@ class Range:
     @staticmethod
     def _assert_min_le_max(min_num, max_num):
         if None not in [min_num, max_num]:
-            assert min_num <= max_num, 'min value must not be greater than max value'
+            assert min_num <= max_num, "min value must not be greater than max value"
 
     def is_in_range(self, num: float):
-        return (
-            (self._max is None or num <= self._max) and
-            (self._min is None or num >= self._min)
+        return (self._max is None or num <= self._max) and (
+            self._min is None or num >= self._min
         )
 
 
@@ -91,13 +90,13 @@ all_price_data: t.Union[pd.DataFrame, None] = None
 
 
 def fc_scan_symbol(
-        symbol: str,
-        price_data: pd.DataFrame,
-        scan_out_info: ScanOutInfo,
-        bench_data: pd.DataFrame = None,
-        freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
-        side=None,
-        round_lot=1,
+    symbol: str,
+    price_data: pd.DataFrame,
+    scan_out_info: ScanOutInfo,
+    bench_data: pd.DataFrame = None,
+    freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
+    side=None,
+    round_lot=1,
 ):
     """helper, scans one symbol, outputs data to files, returns scan results"""
 
@@ -106,7 +105,7 @@ def fc_scan_symbol(
             base_symbol=symbol,
             price_data=price_data,
             bench_data=bench_data,
-            freq_range=freq_range
+            freq_range=freq_range,
         )
     # relative_data = fc_data_gen.init_fc_data(
     #     base_symbol=symbol,
@@ -120,74 +119,74 @@ def fc_scan_symbol(
         price_data=price_data,
         equity=account_info.equity,
         side=side,
-        round_lot=round_lot
+        round_lot=round_lot,
     )
 
     last_signal = price_data.signals.slices()[-1]
     cum_returns = last_signal.stats.cumulative_percent_returns
     cum_returns_total = price_data.signals.cumulative_returns()
-    print(f'{symbol} all returns: {cum_returns_total[-1]}')
-    print(f'{symbol} last signal returns: {cum_returns[-1]}')
-
+    print(f"{symbol} all returns: {cum_returns_total[-1]}")
+    print(f"{symbol} last signal returns: {cum_returns[-1]}")
 
     back_test_utils.graph_regime_fc(
         ticker=symbol,
         df=price_data,
-        y='close',
+        y="close",
         th=1.5,
-        sl='sw_low',
-        sh='sw_high',
-        clg='ceiling',
-        flr='floor',
-        st=price_data['st_ma'],
-        mt=price_data['mt_ma'],
-        bs='regime_change',
-        rg='regime_floorceiling',
-        bo=200
+        sl="sw_low",
+        sh="sw_high",
+        clg="ceiling",
+        flr="floor",
+        st=price_data["st_ma"],
+        mt=price_data["mt_ma"],
+        bs="regime_change",
+        rg="regime_floorceiling",
+        bo=200,
     )
     # plt.show()
-    plt.savefig(scan_out_info.png_fp(f'{symbol}.png'), bbox_inches='tight')
+    plt.savefig(scan_out_info.png_fp(f"{symbol}.png"), bbox_inches="tight")
     # except tda_access.EmptyDataError:
     # except tda_access.TickerNotFoundError:
     # except NoSwingsError as err:
     # except fc_data_gen.FcLosesToBuyHoldError:
     scan_result = regime_scan(
         price_data=price_data,
-        regime_floorceiling_col='regime_floorceiling',
-        regime_change_col='regime_change',
-        rebase_close_col='close',
-        stock_close_col='b_close',
-        side=side
+        regime_floorceiling_col="regime_floorceiling",
+        regime_change_col="regime_change",
+        rebase_close_col="close",
+        stock_close_col="b_close",
+        side=side,
     )
-    stats = stats.sort_values(by='risk_adjusted_returns').dropna(subset=['risk_adjusted_returns'])
-    scan_result['score'] = stats.risk_adjusted_returns.iloc[-1]
-    score = scan_result['score']
-    print(f'{symbol} score: {score}')
-    print(f'{symbol} trades: {stats.trades.iloc[-1]}')
+    stats = stats.sort_values(by="risk_adjusted_returns").dropna(
+        subset=["risk_adjusted_returns"]
+    )
+    scan_result["score"] = stats.risk_adjusted_returns.iloc[-1]
+    score = scan_result["score"]
+    print(f"{symbol} score: {score}")
+    print(f"{symbol} trades: {stats.trades.iloc[-1]}")
     try:
-        scan_result['st'] = stats.st.iloc[-1]
-        scan_result['mt'] = stats.mt.iloc[-1]
+        scan_result["st"] = stats.st.iloc[-1]
+        scan_result["mt"] = stats.mt.iloc[-1]
     except IndexError:
-        scan_result['st'] = np.NAN
-        scan_result['mt'] = np.NAN
+        scan_result["st"] = np.NAN
+        scan_result["mt"] = np.NAN
 
-    scan_result['symbol'] = symbol
-    scan_result['up_to_date'] = price_data.index[-1]
+    scan_result["symbol"] = symbol
+    scan_result["up_to_date"] = price_data.index[-1]
 
     return scan_result, price_data
 
 
 def fc_scan_all(
-        symbols: t.List[str],
-        fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
-        scan_out_info: ScanOutInfo,
-        freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
-        bench_symbol: str = None,
-
-        close_range: Range = Range(),
-        volume_range: Range = Range(),
-        side=None,
-        round_lot=1,
+    symbols: t.List[str],
+    fetch_price_history: t.Callable[[str, tdargs.FreqRangeArgs], pd.DataFrame],
+    scan_out_info: ScanOutInfo,
+    freq_range: tdargs.FreqRangeArgs = tdargs.freqs.day.range(tdargs.periods.y5),
+    bench_symbol: str = None,
+    close_range: Range = Range(),
+    volume_range: Range = Range(),
+    side=None,
+    round_lot=1,
 ) -> t.List[t.Dict]:
     """
     scans all given symbols. builds overview report of scan results.
@@ -212,11 +211,11 @@ def fc_scan_all(
         try:
             data = fetch_price_history(symbol, freq_range)
             if (
-                len(data.index) == 0 or
-                not close_range.is_in_range(data.close[-1]) or
-                not volume_range.is_in_range(data.volume[-1])
+                len(data.index) == 0
+                or not close_range.is_in_range(data.close[-1])
+                or not volume_range.is_in_range(data.volume[-1])
             ):
-                print(f'{symbol} skipped due to price out of range')
+                print(f"{symbol} skipped due to price out of range")
                 symbols.pop(0)
                 continue
 
@@ -227,18 +226,18 @@ def fc_scan_all(
                 freq_range=freq_range,
                 scan_out_info=scan_out_info,
                 side=side,
-                round_lot=round_lot
+                round_lot=round_lot,
             )
 
             # TODO turn into class attribute when scanner becomes class
-            data['symbol'] = symbol
+            data["symbol"] = symbol
             if all_price_data is None:
                 all_price_data = data.copy()
             else:
                 all_price_data = pd.concat([all_price_data, data])
 
         except EmptyDataError:
-            print(f'no data? {symbol}')
+            print(f"no data? {symbol}")
             failed.empty_data.add(symbol)
             symbols.pop(0)
         except TickerNotFoundError:
@@ -263,7 +262,7 @@ def fc_scan_all(
         else:
             raw_scan_results.append(scan_result)
             symbols.pop(0)
-            print(f'{symbol}, {len(symbols)} left...')
+            print(f"{symbol}, {len(symbols)} left...")
 
     return raw_scan_results
 
@@ -274,19 +273,19 @@ def format_scan_results(scan_results_raw: t.List[t.Dict]) -> pd.DataFrame:
     # Change the order of the columns
     if len(market_regime.index.to_list()) == 0:
         raise Exception("no data output")
-    market_regime = market_regime[[
-        'symbol',
-        'signal_start',
-        'signal',
-        'st',
-        'mt',
-        'cum_absolute_returns',
-        'score',
-    ]]
+    market_regime = market_regime[
+        [
+            "symbol",
+            "signal_start",
+            "signal",
+            "st",
+            "mt",
+            "cum_absolute_returns",
+            "score",
+        ]
+    ]
     # Sort columns by regime change date
-    market_regime.sort_values(
-        by=['signal_start'], ascending=False, inplace=True
-    )
+    market_regime.sort_values(by=["signal_start"], ascending=False, inplace=True)
     return market_regime
 
 
@@ -296,7 +295,7 @@ def regime_scan(
     regime_change_col: str,
     rebase_close_col: str,
     stock_close_col: str,
-    side=None
+    side=None,
 ) -> t.Dict:
     # Create a dataframe and dictionary list
     # Current regime
@@ -321,10 +320,10 @@ def regime_scan(
     # position_size = price_data.signals.slices()[-1].eqty_risk_lot[-1]
 
     return {
-        'signal': price_data.signal[-1],
-        'signal_start': signal_start_data,
+        "signal": price_data.signal[-1],
+        "signal_start": signal_start_data,
         # 'r_returns_last': cumulative_relative_returns,  # returns since last regime change (relative price)
-        'cum_absolute_returns': cumulative_absolute_returns,  # returns since last regime change (base price)
+        "cum_absolute_returns": cumulative_absolute_returns,  # returns since last regime change (base price)
         # 'score': price_data.score[-1],
         # 'close': price_data.b_close[-1],
         # 'position_size': position_size,
@@ -349,7 +348,7 @@ def main(
     close_range: Range = Range(),
     volume_range: Range = Range(),
     side=None,
-    round_lot: t.Union[int, None] = 1
+    round_lot: t.Union[int, None] = 1,
 ):
     """wrapper simply for catching PermissionError if the output excel file is already open"""
     global raw_scan_results
@@ -363,7 +362,7 @@ def main(
         # scan_out['trade_risk'] = (
         #     (scan_out.signal * (scan_out.close - scan_out.stop_loss_base)) * scan_out.true_size
         # )
-        scan_out = scan_out.sort_values(by='score', ascending=False)
+        scan_out = scan_out.sort_values(by="score", ascending=False)
         all_price_data.to_csv(scan_out_info.data_fp)
         scan_results_to_excel(scan_out, scan_out_info.report_fp)
 
@@ -377,7 +376,7 @@ def main(
             volume_range=volume_range,
             scan_out_info=scan_out_info,
             side=side,
-            round_lot=round_lot
+            round_lot=round_lot,
         )
     except:
         # output existing results if any uncaught exception occurs
@@ -390,12 +389,12 @@ def main(
     # reset globals upon completion so continuous scanner doesn't include prior runs in output data
     all_price_data = None
     raw_scan_results = []
-    print(f'No candles: {failed.no_candles}')
-    print(f'No data: {failed.empty_data}')
-    print(f'No swings: {failed.no_swings}')
-    print(f'No ticker: {failed.ticker_not_found}')
-    print(f'No high score: {failed.no_high_score}')
-    print(f'Str nan in price: {failed.str_nan_in_price}')
+    print(f"No candles: {failed.no_candles}")
+    print(f"No data: {failed.empty_data}")
+    print(f"No swings: {failed.no_swings}")
+    print(f"No ticker: {failed.ticker_not_found}")
+    print(f"No high score: {failed.no_high_score}")
+    print(f"Str nan in price: {failed.str_nan_in_price}")
     failed.no_candles = set()
     failed.empty_data = set()
     failed.no_swings = set()
@@ -403,34 +402,34 @@ def main(
     failed.no_high_score = set()
     failed.str_nan_in_price = set()
 
-    print('done.')
+    print("done.")
 
 
 def scan_results_to_excel(data: pd.DataFrame, file_path: str):
     """write data to file. if file opened prepend a number until successful"""
     i = 0
-    prefix = ''
+    prefix = ""
     while True:
         try:
             if i > 0:
-                prefix = f'({i})'
-            data.to_excel(f'{prefix}{file_path}')
+                prefix = f"({i})"
+            data.to_excel(f"{prefix}{file_path}")
             break
         except PermissionError:
             i += 1
 
 
 def get_sp500_symbols():
-    SP500_URL = 'https://tda-api.readthedocs.io/en/latest/_static/sp500.txt'
+    SP500_URL = "https://tda-api.readthedocs.io/en/latest/_static/sp500.txt"
 
     # Load S&P 500 composition from documentation
     # List[str]
-    sp500 = httpx.get(
-        SP500_URL,
-        headers={
-            "User-Agent": "Mozilla/5.0"
-        }
-    ).read().decode().split()
+    sp500 = (
+        httpx.get(SP500_URL, headers={"User-Agent": "Mozilla/5.0"})
+        .read()
+        .decode()
+        .split()
+    )
     return sp500
 
 
@@ -438,15 +437,13 @@ def test_signal(symbol):
     # price_data = yf_price_history('ADA-USD')
     price_data = yf_price_history(symbol)
     price_data, stats = fc_data_gen.init_fc_data(
-        base_symbol='ADA-USD',
-        price_data=price_data,
-        equity=account_info.equity
+        base_symbol="ADA-USD", price_data=price_data, equity=account_info.equity
     )
     return price_data
 
 
 def scan_nasdaq():
-    stocks = pd.read_excel(r'.\symbols\nasdaq.xlsx')
+    stocks = pd.read_excel(r".\symbols\nasdaq.xlsx")
     main(
         # symbols=cb_usd_products.id.to_list(),
         symbols=stocks.Symbol.to_list(),
@@ -456,7 +453,7 @@ def scan_nasdaq():
     )
 
 
-def continuous_scan(job: t.Callable, run_at_time: str = '01:00'):
+def continuous_scan(job: t.Callable, run_at_time: str = "01:00"):
     """"""
     schedule.every().day.at(run_at_time).do(job)
     while True:
@@ -464,30 +461,19 @@ def continuous_scan(job: t.Callable, run_at_time: str = '01:00'):
         time.sleep(60)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main(
-        symbols=[
-                'IDXX',
-                'RDM',
-                'EW',
-                'WAT',
-                'SHW',
-                'EXR',
-                'ABMD',
-                'MSCI'
-            ],
+        symbols=["IDXX", "RDM", "EW", "WAT", "SHW", "EXR", "ABMD", "MSCI"],
         bench=None,
-        freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30)),
+        freq_range=tdargs.freqs.m15.range(
+            left_bound=datetime.utcnow() - timedelta(days=30)
+        ),
         fetch_price_history=tda_access.LocalClient.price_history,
         scan_out_info=ScanOutInfo(
-            _out_dir=r'C:\Users\Brian\OneDrive\algo_data\csv',
-            _png_dir=r'C:\Users\Brian\OneDrive\algo_data\png',
-            _report_name='scan_out.xlsx',
-            _price_data_name='price_data.csv'
-        )
+            _out_dir=r"C:\Users\Brian\OneDrive\algo_data\csv",
+            _png_dir=r"C:\Users\Brian\OneDrive\algo_data\png",
+            _report_name="scan_out.xlsx",
+            _price_data_name="price_data.csv",
+        ),
     )
-    print('done')
-
-
-
-
+    print("done")

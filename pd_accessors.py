@@ -14,7 +14,7 @@ import operator as op
 def _validate(items: t.List[str], mandatory: t.List[str]):
     col_not_found = [col for col in mandatory if col not in items]
     if col_not_found:
-        raise AttributeError(f'{col_not_found} expected but not found')
+        raise AttributeError(f"{col_not_found} expected but not found")
 
 
 class DfAccessorBase(metaclass=ABCMeta):
@@ -41,17 +41,17 @@ class SeriesAccessorBase(metaclass=ABCMeta):
         _validate(obj.index.to_list(), cls.mandatory_cols)
 
 
-@pd.api.extensions.register_series_accessor('price_opr')
+@pd.api.extensions.register_series_accessor("price_opr")
 class PriceOperators:
     def __init__(self, series: pd.Series):
         self._obj = series
 
     def sma(self, ma_per: int, min_per: int, decimals: int):
         return round(
-            self._obj
-                .rolling(window=ma_per, min_periods=int(round(ma_per * min_per, 0)))
-                .mean(),
-            decimals
+            self._obj.rolling(
+                window=ma_per, min_periods=int(round(ma_per * min_per, 0))
+            ).mean(),
+            decimals,
         )
 
     def sma_vector(
@@ -59,7 +59,7 @@ class PriceOperators:
         sma_pairs: t.List[t.Tuple[int, int]],
         min_per: int = 1,
         decimals: int = 5,
-        concat: bool = True
+        concat: bool = True,
     ) -> t.Union[pd.DataFrame, t.List[pd.Series]]:
         """"""
         deltas = []
@@ -68,7 +68,7 @@ class PriceOperators:
                 self._obj.price_opr.sma(ma_per=val, min_per=min_per, decimals=decimals)
                 for val in pair
             ]
-            name = f's_{pair[0]}_{pair[1]}'
+            name = f"s_{pair[0]}_{pair[1]}"
             stmt_delta = np.sign(r_st_ma - r_mt_ma).fillna(0).rename(name)
             deltas.append(stmt_delta)
 
@@ -78,34 +78,31 @@ class PriceOperators:
         return deltas
 
     def sma_signals_vector(
-        self,
-        sma_pairs: t.List[t.Tuple[int, int]],
-        min_per: int = 1,
-        decimals: int = 5,
+        self, sma_pairs: t.List[t.Tuple[int, int]], min_per: int = 1, decimals: int = 5,
     ):
-        sma_vector = self._obj.price_opr.sma_vector(sma_pairs=sma_pairs, min_per=min_per, decimals=decimals)
+        sma_vector = self._obj.price_opr.sma_vector(
+            sma_pairs=sma_pairs, min_per=min_per, decimals=decimals
+        )
         regime_df = pd.DataFrame(self._obj).values
         signals_vector = np.sign(sma_vector * regime_df)
         signals_vector[signals_vector != 1] = np.nan
         return signals_vector * regime_df
 
 
-@pd.api.extensions.register_dataframe_accessor('swings')
+@pd.api.extensions.register_dataframe_accessor("swings")
 class Swings(DfAccessorBase):
     mandatory_cols = [
-        'high',
-        'low',
+        "high",
+        "low",
     ]
 
     def __init__(self, df: pd.DataFrame):
         super().__init__(df)
 
 
-@pd.api.extensions.register_dataframe_accessor('signals')
+@pd.api.extensions.register_dataframe_accessor("signals")
 class Signals(DfAccessorBase):
-    mandatory_cols = [
-        'signal'
-    ]
+    mandatory_cols = ["signal"]
 
     def __init__(self, df: pd.DataFrame):
         super().__init__(df)
@@ -118,16 +115,16 @@ class Signals(DfAccessorBase):
     @property
     def ends(self) -> pd.DataFrame:
         """transition from non-nan to nan means signal has ended"""
-        return self._obj[(self._obj.signal.shift(-1).fillna(0) == 0) & (self._obj.signal != 0)]
+        return self._obj[
+            (self._obj.signal.shift(-1).fillna(0) == 0) & (self._obj.signal != 0)
+        ]
 
     @property
     def count(self):
         return len(self._obj.signals.starts.index)
 
     def slices(
-        self,
-        side: Side = None,
-        concat: bool = False
+        self, side: Side = None, concat: bool = False
     ) -> t.Union[t.List[pd.DataFrame], pd.DataFrame]:
         """
 
@@ -142,11 +139,8 @@ class Signals(DfAccessorBase):
         ends = self.ends
         res = []
         for i, end_date in enumerate(ends.index.to_list()):
-            trade_slice = self._obj.loc[starts.index[i]: end_date]
-            if (
-                side is None or
-                Side(trade_slice.signal[0]) == side
-            ):
+            trade_slice = self._obj.loc[starts.index[i] : end_date]
+            if side is None or Side(trade_slice.signal[0]) == side:
                 res.append(trade_slice)
 
         if concat:
@@ -188,15 +182,12 @@ class Signals(DfAccessorBase):
     @property
     def status(self) -> SignalStatus:
         """gives the current signal status"""
-        return SignalStatus((
-            Side(self._obj.signals.current),
-            Side(self._obj.signals.prev)
-        ))
+        return SignalStatus(
+            (Side(self._obj.signals.current), Side(self._obj.signals.prev))
+        )
 
     def init_simulated_scale_out(
-        self,
-        stop_loss_col: str = 'stop_loss',
-        target_r: float = 1.5
+        self, stop_loss_col: str = "stop_loss", target_r: float = 1.5
     ) -> t.Tuple[pd.Series, pd.Series]:
         """
         For all signals, calculate remaining position size as a percent
@@ -232,7 +223,9 @@ class Signals(DfAccessorBase):
 
         return pd.concat(size_percents_group), pd.concat(target_group)
 
-    def equity_risk_weight(self, risk: float, stop_loss_col: str = 'stop_loss') -> pd.Series:
+    def equity_risk_weight(
+        self, risk: float, stop_loss_col: str = "stop_loss"
+    ) -> pd.Series:
         position_weight = []
         for signal_data in self._obj.signals.slices():
             px_adj = signal_data.close.iloc[0]
@@ -251,7 +244,9 @@ class Signals(DfAccessorBase):
 
         return pd.concat(position_weight)
 
-    def calc_lot(self, capital, weight_col: str, fx_rate=1, round_lot: t.Union[int, None] = 1) -> pd.Series:
+    def calc_lot(
+        self, capital, weight_col: str, fx_rate=1, round_lot: t.Union[int, None] = 1
+    ) -> pd.Series:
         """calculate the size in number of shares"""
         lots = []
         for signal_data in self._obj.signals.slices():
@@ -267,9 +262,9 @@ class Signals(DfAccessorBase):
         return pd.concat(lots).fillna(value=0)
 
 
-@pd.api.extensions.register_dataframe_accessor('stats')
+@pd.api.extensions.register_dataframe_accessor("stats")
 class Stats(DfAccessorBase):
-    mandatory_cols = ['close', 'b_close']
+    mandatory_cols = ["close", "b_close"]
 
     def __init__(self, df: pd.DataFrame):
         super().__init__(df)
@@ -284,11 +279,11 @@ class Stats(DfAccessorBase):
         return trade_stats.simple_returns(self._obj.b_close)
 
 
-@pd.api.extensions.register_dataframe_accessor('lots')
+@pd.api.extensions.register_dataframe_accessor("lots")
 class Lots(DfAccessorBase):
     mandatory_cols = [
-        'eqty_risk_lot',
-        'signal',
+        "eqty_risk_lot",
+        "signal",
     ]
 
     def __init__(self, df: pd.DataFrame):
@@ -305,13 +300,9 @@ class Lots(DfAccessorBase):
         return self._obj.eqty_risk_lot * self._obj.signal
 
 
-@pd.api.extensions.register_dataframe_accessor('scan_data')
+@pd.api.extensions.register_dataframe_accessor("scan_data")
 class ScanData(DfAccessorBase):
-    mandatory_cols = [
-        'symbol',
-        'st',
-        'mt'
-    ]
+    mandatory_cols = ["symbol", "st", "mt"]
 
     def __init__(self, df: pd.DataFrame):
         super().__init__(df)
@@ -323,16 +314,16 @@ class ScanData(DfAccessorBase):
         pass
 
 
-@pd.api.extensions.register_dataframe_accessor('stop_losses')
+@pd.api.extensions.register_dataframe_accessor("stop_losses")
 class StopLoss(DfAccessorBase):
     mandatory_cols = [
-        'signal',
-        'high',
-        'low',
-        'close',
-        'sw_high',
-        'sw_low',
-        'stop_loss'
+        "signal",
+        "high",
+        "low",
+        "close",
+        "sw_high",
+        "sw_low",
+        "stop_loss",
     ]
 
     def __init__(self, df: pd.DataFrame):
@@ -355,9 +346,8 @@ class StopLoss(DfAccessorBase):
                 extremes.iat[0] = entry_price
                 cum_extreme = extremes.cummin()
 
-
             # shift back to
-            cum_delta_from_entry = (cum_extreme - entry_price)
+            cum_delta_from_entry = cum_extreme - entry_price
             # stop loss increases/decreases by the current cumulative extreme from the beginning stop loss
             trail_stop = cum_delta_from_entry + signal_data.stop_loss
 
@@ -365,7 +355,9 @@ class StopLoss(DfAccessorBase):
 
         return pd.concat(trail_stops)
 
-    def trail_to_cost(self, trail_stop: pd.Series, undefined_trips=False) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
+    def trail_to_cost(
+        self, trail_stop: pd.Series, undefined_trips=False
+    ) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
         """
         TODO does this need to be vectorized?
         TODO test stop loss generator
@@ -375,16 +367,20 @@ class StopLoss(DfAccessorBase):
         :return:
         """
         local_obj = self._obj.copy()
-        local_obj['trail_stop'] = trail_stop
+        local_obj["trail_stop"] = trail_stop
 
         trail_stops = []
         cropped_signals = []
         stop_status = []
 
         for signal_data in self._obj.signals.slices():
-            (trail_stop_at_cost,
-             signal,
-             where_crosses_cost) = signal_data.stop_losses.trail_stop_to_cost_single(undefined_trips=undefined_trips)
+            (
+                trail_stop_at_cost,
+                signal,
+                where_crosses_cost,
+            ) = signal_data.stop_losses.trail_stop_to_cost_single(
+                undefined_trips=undefined_trips
+            )
             trail_stops.append(trail_stop_at_cost)
             cropped_signals.append(signal)
             stop_status.append(where_crosses_cost)
@@ -392,10 +388,12 @@ class StopLoss(DfAccessorBase):
         return (
             pd.concat(trail_stops),
             pd.concat(cropped_signals),
-            pd.concat(stop_status)
+            pd.concat(stop_status),
         )
 
-    def trail_stop_to_cost_single(self, undefined_trips=False) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
+    def trail_stop_to_cost_single(
+        self, undefined_trips=False
+    ) -> t.Tuple[pd.Series, pd.Series, pd.Series]:
         """
         assumed that given dataframe is 1 signal
 
@@ -445,16 +443,20 @@ class StopLoss(DfAccessorBase):
         signal = self._obj.signal
         close = self._obj.close
 
-        stoploss = (
-            s_low.add(s_high, fill_value=0)
-        ).fillna(method='ffill')  # join all swings in 1 column
-        stoploss[~((np.isnan(signal.shift(1))) & (~np.isnan(signal)))] = np.nan  # keep 1st sl by signal
-        stoploss = stoploss.fillna(method='ffill')  # extend first value with fillna
+        stoploss = (s_low.add(s_high, fill_value=0)).fillna(
+            method="ffill"
+        )  # join all swings in 1 column
+        stoploss[
+            ~((np.isnan(signal.shift(1))) & (~np.isnan(signal)))
+        ] = np.nan  # keep 1st sl by signal
+        stoploss = stoploss.fillna(method="ffill")  # extend first value with fillna
 
         # Bull: lowest close, Bear: highest close
         close_max = close.groupby(stoploss).cummax()
         close_min = close.groupby(stoploss).cummin()
-        cum_close = np.where(signal == 1, close_min, np.where(signal == -1, close_max, 0))
+        cum_close = np.where(
+            signal == 1, close_min, np.where(signal == -1, close_max, 0)
+        )
 
         # reset signal where stop loss is breached
         sl_delta = (cum_close - stoploss).fillna(0)
@@ -476,7 +478,7 @@ class StopLoss(DfAccessorBase):
             pass
 
 
-@pd.api.extensions.register_dataframe_accessor('price_data')
+@pd.api.extensions.register_dataframe_accessor("price_data")
 class PriceData(DfAccessorBase):
     mandatory_cols = []
 
@@ -484,8 +486,8 @@ class PriceData(DfAccessorBase):
         super().__init__(df)
 
     def init(self):
-        df = pd.DataFrame(columns=['symbol', 'open', 'high', 'low', 'close'])
-        df.index.name = 'time'
+        df = pd.DataFrame(columns=["symbol", "open", "high", "low", "close"])
+        df.index.name = "time"
         return df
 
 
@@ -509,20 +511,16 @@ def regime_slices(df, regime_col, regime_val=None):
     ends = ends_na(df, regime_col)
     res = []
     for i, end_date in enumerate(ends.index.to_list()):
-        data_slice = df.loc[starts.index[i]: end_date]
+        data_slice = df.loc[starts.index[i] : end_date]
         if regime_val is not None and data_slice[regime_col].iloc[0] == regime_val:
             res.append(data_slice)
 
     return res
 
 
-@pd.api.extensions.register_series_accessor('pivot_row')
+@pd.api.extensions.register_series_accessor("pivot_row")
 class PivotRow(SeriesAccessorBase):
-    mandatory_cols = [
-        'start',
-        'end',
-        'rg'
-    ]
+    mandatory_cols = ["start", "end", "rg"]
 
     def __init__(self, obj: pd.Series):
         super().__init__(obj)
@@ -534,3 +532,7 @@ class PivotRow(SeriesAccessorBase):
         :return:
         """
         return (self._obj.start < dates) & (dates < self._obj.end)
+
+
+def date_slice(start, end, dates):
+    return (start < dates) & (dates < end)

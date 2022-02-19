@@ -25,16 +25,18 @@ def merge_copy(data: pd.DataFrame, prefix: str) -> pd.DataFrame:
     Used for merging with other PriceDf data
     :return:
     """
-    new_names = {column: f'{prefix}_{column}' for column in data.columns}
+    new_names = {column: f"{prefix}_{column}" for column in data.columns}
     return data.rename(columns=new_names)
 
 
 def revert_copy(data: pd.DataFrame, prefix: str) -> pd.DataFrame:
-    revert_names = {col: col.replace(f'{prefix}_', '') for col in data.columns}
+    revert_names = {col: col.replace(f"{prefix}_", "") for col in data.columns}
     return data.rename(columns=revert_names)
 
 
-def merge_reshape(price_data_prefix: str, price_data: pd.DataFrame, other_data: pd.DataFrame) -> pd.DataFrame:
+def merge_reshape(
+    price_data_prefix: str, price_data: pd.DataFrame, other_data: pd.DataFrame
+) -> pd.DataFrame:
     """
     :param price_data:
     :param price_data_prefix:
@@ -43,30 +45,30 @@ def merge_reshape(price_data_prefix: str, price_data: pd.DataFrame, other_data: 
     """
     data_cpy = merge_copy(price_data, price_data_prefix)
     data_copy_columns = list(data_cpy.columns)
-    reshaped = other_data.join(data_cpy, how='left')
+    reshaped = other_data.join(data_cpy, how="left")
     reshaped = reshaped[data_copy_columns]
     reshaped = revert_copy(reshaped, prefix=price_data_prefix)
     return reshaped
 
 
 def init_fc_data(
-        base_symbol: str,
-        price_data: pd.DataFrame,
-        equity: t.Union[float, None],
-        transaction_cost: t.Optional[float] = 0,
-        percentile: float = 0.05,
-        min_periods: int = 50,
-        window: int = 200,
-        limit: int = 5,
-        arg_rel_window: int = 20,
-        threshold: int = 1.5,  #
-        st_dev_window: int = 63,  #
-        st_list: t.Union[range, int] = range(10, 101, 10),
-        mt_list: t.Union[range, int] = range(160, 201, 20),
-        round_lot: t.Union[None, int] = 1,
-        constant_risk: float = 0.25 / 100,
-        constant_weight: float = 3 / 100,
-        side=None
+    base_symbol: str,
+    price_data: pd.DataFrame,
+    equity: t.Union[float, None],
+    transaction_cost: t.Optional[float] = 0,
+    percentile: float = 0.05,
+    min_periods: int = 50,
+    window: int = 200,
+    limit: int = 5,
+    arg_rel_window: int = 20,
+    threshold: int = 1.5,  #
+    st_dev_window: int = 63,  #
+    st_list: t.Union[range, int] = range(10, 101, 10),
+    mt_list: t.Union[range, int] = range(160, 201, 20),
+    round_lot: t.Union[None, int] = 1,
+    constant_risk: float = 0.25 / 100,
+    constant_weight: float = 3 / 100,
+    side=None,
 ) -> t.Tuple[pd.DataFrame, pd.DataFrame]:
     """
 
@@ -89,21 +91,21 @@ def init_fc_data(
     :param constant_weight:
     :return:
     """
-    price_data = price_data[~price_data.index.duplicated(keep='first')]
+    price_data = price_data[~price_data.index.duplicated(keep="first")]
     try:
         price_data = btu.swings(
             df=price_data,
-            high='high',
-            low='low',
+            high="high",
+            low="low",
             arg_rel_window=arg_rel_window,
-            prefix='sw'
+            prefix="sw",
         )
         price_data = btu.swings(
             df=price_data,
-            high='b_high',
-            low='b_low',
+            high="b_high",
+            low="b_low",
             arg_rel_window=arg_rel_window,
-            prefix='sw'
+            prefix="sw",
         )
     except btu.NoSwingsError as err:
         # pass along the symbol that swing failed to calculate
@@ -112,24 +114,26 @@ def init_fc_data(
 
     price_data = btu.regime_fc(
         df=price_data,
-        close='close',
-        swing_low='sw_low',
-        swing_high='sw_high',
+        close="close",
+        swing_low="sw_low",
+        swing_high="sw_high",
         threshold=threshold,
-        st_dev_window=st_dev_window
+        st_dev_window=st_dev_window,
     )
     # price_data['regime_change'] = 0
 
     if isinstance(st_list, range) and isinstance(mt_list, range):
-        ma_pairs = [(st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt]
+        ma_pairs = [
+            (st, mt) for st, mt in itertools.product(st_list, mt_list) if st < mt
+        ]
     else:
         ma_pairs = [(st_list, mt_list)]
 
     price_data, scoreboard = btu.init_fc_signal_stoploss(
         fc_data=price_data,
         symbol=base_symbol,
-        base_close='b_close',
-        relative_close='close',
+        base_close="b_close",
+        relative_close="close",
         ma_pairs=ma_pairs,
         transaction_cost=transaction_cost,
         percentile=percentile,
@@ -139,12 +143,18 @@ def init_fc_data(
         side=side,
     )
     if price_data is None:
-        raise FcLosesToBuyHoldError(f'{base_symbol} Floor/Ceiling does not beat buy and hold')
+        raise FcLosesToBuyHoldError(
+            f"{base_symbol} Floor/Ceiling does not beat buy and hold"
+        )
 
-    price_data['ceiling'] = price_data.loc[price_data.regime_floorceiling == -1, 'regime_change']
-    price_data['floor'] = price_data.loc[price_data.regime_floorceiling == 1, 'regime_change']
+    price_data["ceiling"] = price_data.loc[
+        price_data.regime_floorceiling == -1, "regime_change"
+    ]
+    price_data["floor"] = price_data.loc[
+        price_data.regime_floorceiling == 1, "regime_change"
+    ]
 
-    price_data['eqty_risk_lot'] = 0
+    price_data["eqty_risk_lot"] = 0
     # price_data['equal_weight_lot'] = 0
 
     # don't waste time on pandas operations if there are no signals to
@@ -156,19 +166,21 @@ def init_fc_data(
             constant_risk=constant_risk,
             # constant_weight=constant_weight,
             # stop_loss_col='stop_loss',
-            round_lot=round_lot
+            round_lot=round_lot,
         )
     else:
-        raise NoSignalsError(f'{base_symbol} No signals generated')
+        raise NoSignalsError(f"{base_symbol} No signals generated")
 
     # price_data[['close', 'b_close', 'signal', 'stop_loss']].plot()
     # TODO is filling na on signal column redundant?
     price_data.signal = price_data.signal.fillna(0)
 
     try:
-        price_data.reset_index().to_feather(fr'C:\algo_data_store\strategy_data\strategy_data\{base_symbol}.ftr')
+        price_data.reset_index().to_feather(
+            fr"C:\algo_data_store\strategy_data\strategy_data\{base_symbol}.ftr"
+        )
     except Exception as e:
-        print(f'TODO catch exception {e}')
+        print(f"TODO catch exception {e}")
 
     return price_data, scoreboard
 
@@ -185,8 +197,7 @@ def create_relative_data(
         forex_data = _forex_data.get(forex_symbol, None)
         if forex_data is None:
             forex_data = tda_access.LocalClient.price_history(
-                symbol=forex_symbol,
-                freq_range=freq_range
+                symbol=forex_symbol, freq_range=freq_range
             )
             _forex_data[forex_symbol] = forex_data
 
@@ -194,16 +205,10 @@ def create_relative_data(
     data = merge_reshape(base_symbol, price_data, bench_data)
 
     rel_data = btu.relative_series(
-        base_df=data,
-        bench_df=bench_data,
-        forex_df=forex_data,
-        decimal=2
+        base_df=data, bench_df=bench_data, forex_df=forex_data, decimal=2
     )
 
-    data_cpy = merge_copy(data, 'b')
+    data_cpy = merge_copy(data, "b")
     data = rel_data.join(data_cpy)
-    data = data[
-        ['open', 'high', 'low', 'close', 'b_close', 'b_high', 'b_low']
-    ]
+    data = data[["open", "high", "low", "close", "b_close", "b_high", "b_low"]]
     return data
-

@@ -26,6 +26,7 @@ def set_bar_end_time(interval, time_stamp):
     )
     return right_bound_time
 
+
 # ----------------------
 # UTIL FUNCTIONS (END)
 # ----------------------
@@ -37,15 +38,9 @@ class Condition:
     result: t.Any
 
 
-Condition(
-    case=lambda x: x > 0,
-    result='buy'
-)
+Condition(case=lambda x: x > 0, result="buy")
 
-Condition(
-    case=lambda x: x < 0,
-    result='buy'
-)
+Condition(case=lambda x: x < 0, result="buy")
 
 
 class AbstractPosition(ABC):
@@ -55,7 +50,9 @@ class AbstractPosition(ABC):
     _side: Side
     _stop_value = float
 
-    def __init__(self, symbol, qty, side, raw_position=None, stop_value=None, data_row=None):
+    def __init__(
+        self, symbol, qty, side, raw_position=None, stop_value=None, data_row=None
+    ):
         self._symbol = symbol
         self._qty = qty
         self._side = Side(side)
@@ -79,7 +76,7 @@ class AbstractPosition(ABC):
         the desired size
         :return:
         """
-        assert new_qty >= 0, 'input quantity must be >= 0'
+        assert new_qty >= 0, "input quantity must be >= 0"
         order_spec = None
         size_delta = new_qty - self._qty
         if size_delta != 0:
@@ -172,7 +169,7 @@ class AbstractBrokerClient(ABC):
 
 class AbstractOrders(ABC):
     @abstractmethod
-    def _long_open(self, ):
+    def _long_open(self,):
         pass
 
     @abstractmethod
@@ -240,10 +237,10 @@ class Bar:
 
     def get_ohlc(self):
         return {
-            'open': self._open,
-            'high': self._high,
-            'low': self._low,
-            'close': self._close
+            "open": self._open,
+            "high": self._high,
+            "low": self._low,
+            "close": self._close,
         }
 
 
@@ -266,7 +263,7 @@ class AbstractStreamParser(ABC):
         fetch_price_data: DATA_FETCH_FUNCTION,
         data_delay,
         live_quote_file_path=None,
-        history_path='',
+        history_path="",
         interval: int = 1,
     ):
         self._data_delay = data_delay
@@ -276,7 +273,9 @@ class AbstractStreamParser(ABC):
         self._live_quote_file_path = live_quote_file_path
         self._symbol = symbol
         self._fetch_price_data = fetch_price_data
-        self._history_file_path = self.__class__._init_price_history_path(history_path, symbol)
+        self._history_file_path = self.__class__._init_price_history_path(
+            history_path, symbol
+        )
         self._interval = interval
         self._bar_data = None
         self._quoted_prices = None
@@ -285,7 +284,7 @@ class AbstractStreamParser(ABC):
         self._state_table = {
             StreamState.INITIAL: self._init_stream_data,
             StreamState.FILL_GAP: self._allow_fill_data_gap,
-            StreamState.NORMAL_UPDATE: self._do_nothing
+            StreamState.NORMAL_UPDATE: self._do_nothing,
         }
 
     @abstractmethod
@@ -300,7 +299,7 @@ class AbstractStreamParser(ABC):
     def fetch_price_data(self) -> t.Tuple[pd.DataFrame, t.Any]:
         """x days worth of minute data by the give interval"""
         x = 5
-        return self._fetch_price_data(self._symbol, self._interval, x, 'm')
+        return self._fetch_price_data(self._symbol, self._interval, x, "m")
 
     def update_ohlc_state(self, data: t.Dict):
         self._quoted_prices = self.retrieve_ohlc(data)
@@ -319,10 +318,9 @@ class AbstractStreamParser(ABC):
         """
         self._stream_init_time = time_stamp
         self._bar_data = Bar(self._interval, time_stamp)
-        next_bar_time = (
-            self._stream_init_time.replace(second=0, microsecond=0) +
-            timedelta(minutes=self._stream_init_time.minute % self._interval)
-        )
+        next_bar_time = self._stream_init_time.replace(
+            second=0, microsecond=0
+        ) + timedelta(minutes=self._stream_init_time.minute % self._interval)
         self._target_fetch_time = next_bar_time + self._data_delay
         return StreamState.FILL_GAP
 
@@ -336,7 +334,7 @@ class AbstractStreamParser(ABC):
 
             price_data, _ = self.fetch_price_data()
             price_data.to_csv(self._history_file_path)
-            print(f'{self._symbol} gap filled')
+            print(f"{self._symbol} gap filled")
             next_state = StreamState.NORMAL_UPDATE
         return next_state
 
@@ -345,14 +343,14 @@ class AbstractStreamParser(ABC):
 
     def get_ohlc(self) -> t.Dict:
         res = self._bar_data.get_ohlc()
-        res['symbol'] = self._symbol
+        res["symbol"] = self._symbol
         return res
 
     @staticmethod
     def _init_price_history_path(price_history_path, symbol):
-        full_path = f'{symbol}.ftr'
+        full_path = f"{symbol}.ftr"
         if len(price_history_path) > 0:
-            full_path = f'{price_history_path}\\{full_path}'
+            full_path = f"{price_history_path}\\{full_path}"
         return full_path
 
 
@@ -368,7 +366,7 @@ class AbstractTickerStream:
         quote_file_path: str,
         history_path: str,
         fetch_price_data: DATA_FETCH_FUNCTION,
-        interval: int = 1
+        interval: int = 1,
     ):
         # self._stream = stream
         self._stream_parser_cls = stream_parser
@@ -381,7 +379,7 @@ class AbstractTickerStream:
         # self._permission_error_count = 0
         self._msg_queue_lookup = {}
 
-        self._columns = ['symbol', 'open', 'high', 'low', 'close']
+        self._columns = ["symbol", "open", "high", "low", "close"]
 
     @abstractmethod
     def run_stream(self, *args, **kwargs):
@@ -404,7 +402,9 @@ class AbstractTickerStream:
 
         return send_conn
 
-    def handle_stream(self, current_quotes, queue: mp.SimpleQueue, send_conn: Connection):
+    def handle_stream(
+        self, current_quotes, queue: mp.SimpleQueue, send_conn: Connection
+    ):
         """handles the messages, translates to ohlc values, outputs to json and csv"""
         # start_time = time()
         while True:
@@ -441,23 +441,27 @@ class AbstractTickerStream:
                         new_row = pd.DataFrame(
                             [price_data.values()],
                             columns=self._columns,
-                            index=[bar_end_time]
+                            index=[bar_end_time],
                         )
-                        new_row.to_csv(self.get_price_history_file_path(symbol), mode='a', header=False)
+                        new_row.to_csv(
+                            self.get_price_history_file_path(symbol),
+                            mode="a",
+                            header=False,
+                        )
                         post_write_lag = datetime.utcnow() - bar_end_time
                         print(
-                            f'{symbol} {bar_end_time} '
-                            f'(pre-write lag): {pre_write_lag}, '
-                            f'(post-write lag): {post_write_lag}'
+                            f"{symbol} {bar_end_time} "
+                            f"(pre-write lag): {pre_write_lag}, "
+                            f"(post-write lag): {post_write_lag}"
                         )
 
                 # shift bar end time to the right by 1 interval
                 bar_end_time = set_bar_end_time(self._interval, time_stamp)
 
     def get_price_history_file_path(self, symbol: str):
-        full_path = f'{symbol}.csv'
+        full_path = f"{symbol}.csv"
         if len(self._history_path) > 0:
-            full_path = f'{self._history_path}\\{full_path}'
+            full_path = f"{self._history_path}\\{full_path}"
         return full_path
 
     def _init_stream_parsers(self, symbol_delays: t.Tuple[str, t.Any]):
@@ -468,7 +472,7 @@ class AbstractTickerStream:
                     data_delay=delay,
                     interval=self._interval,
                     fetch_price_data=self._fetch_price_data,
-                    history_path=self._history_path
+                    history_path=self._history_path,
                 )
             )
             for symbol, delay in symbol_delays

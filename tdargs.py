@@ -16,6 +16,7 @@ _tda_freq_type = Client.PriceHistory.FrequencyType
 _tda_period = Client.PriceHistory.Period
 _tda_period_type = Client.PriceHistory.PeriodType
 
+
 @dataclass
 class LabeledData:
     symbol: str
@@ -25,14 +26,17 @@ class LabeledData:
 @dataclass
 class _TypeMap:
     """bind tda frequency types to frequency value"""
+
     type: Any
     val: Any
+
 
 @dataclass
 class _TimeSliceArgs:
     """
     # the last parameter should be None upon initialization. they are included for duck typing
     """
+
     start: Any
     end: Any
     period: Any
@@ -64,6 +68,7 @@ def time_period(left_bound: _TypeMap, right_bound: datetime):
 @dataclass
 class _PeriodMap:
     """create bindings for period type and period"""
+
     y20: _TypeMap
     y15: _TypeMap
     y10: _TypeMap
@@ -89,22 +94,21 @@ class _PHistoryArgs:
         - add param defining minimum/maximum ranges to pass in for valid data
             -(FUTURE) create a module for automatically obtaining the min/max ranges
     """
+
     def __init__(
         self,
         freq_type_map: _TypeMap,
         time_range_init_func: Callable[
             [Union[datetime, _TypeMap], datetime],
-            Union[_TimeSliceArgs, _TimePeriodArgs]
-        ]
+            Union[_TimeSliceArgs, _TimePeriodArgs],
+        ],
     ):
         self.freq = freq_type_map
         self.period = None
         self._tr_init = time_range_init_func
 
     def range(
-        self,
-        left_bound: Union[_PeriodMap, datetime],
-        right_bound=datetime.now()
+        self, left_bound: Union[_PeriodMap, datetime], right_bound=datetime.now()
     ) -> FreqRangeArgs:
         """
         :param left_bound:
@@ -118,6 +122,7 @@ class _PHistoryArgs:
 @dataclass
 class _FrequencyMap:
     """contains tda param mappings for all bar types"""
+
     month: _PHistoryArgs
     week: _PHistoryArgs
     day: _PHistoryArgs
@@ -129,13 +134,7 @@ class _FrequencyMap:
 
 
 def time_ago(
-    days=0,
-    seconds=0,
-    microseconds=0,
-    milliseconds=0,
-    minutes=0,
-    hours=0,
-    weeks=0
+    days=0, seconds=0, microseconds=0, milliseconds=0, minutes=0, hours=0, weeks=0
 ):
     """
     produce a date time distanced from datetime.now()
@@ -145,36 +144,24 @@ def time_ago(
 
 freqs = _FrequencyMap(
     month=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.MONTHLY, _tda_freq.MONTHLY),
-        time_period
+        _TypeMap(_tda_freq_type.MONTHLY, _tda_freq.MONTHLY), time_period
     ),
-    week=_PHistoryArgs(
-        _TypeMap(_tda_freq.WEEKLY, _tda_freq.WEEKLY),
-        time_period
-    ),
-    day=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.DAILY, _tda_freq.DAILY),
-        time_period
-    ),
+    week=_PHistoryArgs(_TypeMap(_tda_freq.WEEKLY, _tda_freq.WEEKLY), time_period),
+    day=_PHistoryArgs(_TypeMap(_tda_freq_type.DAILY, _tda_freq.DAILY), time_period),
     m30=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_THIRTY_MINUTES),
-        time_slice
+        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_THIRTY_MINUTES), time_slice
     ),
     m15=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_FIFTEEN_MINUTES),
-        time_slice
+        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_FIFTEEN_MINUTES), time_slice
     ),
     m10=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_TEN_MINUTES),
-        time_slice
+        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_TEN_MINUTES), time_slice
     ),
     m5=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_FIVE_MINUTES),
-        time_slice
+        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_FIVE_MINUTES), time_slice
     ),
     m1=_PHistoryArgs(
-        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_MINUTE),
-        time_slice
+        _TypeMap(_tda_freq_type.MINUTE, _tda_freq.EVERY_MINUTE), time_slice
     ),
 )
 
@@ -197,5 +184,3 @@ periods = _PeriodMap(
     d2=_TypeMap(_tda_period_type.DAY, _tda_period.TWO_DAYS),
     d1=_TypeMap(_tda_period_type.DAY, _tda_period.ONE_DAY),
 )
-
-

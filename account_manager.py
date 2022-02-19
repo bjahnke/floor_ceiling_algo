@@ -24,8 +24,7 @@ from strategy_utils import SignalStatus
 from scanner import yf_price_history
 
 
-
-_TradeStates = namedtuple('TradeStates', 'managed not_managed')
+_TradeStates = namedtuple("TradeStates", "managed not_managed")
 
 
 # =======
@@ -41,6 +40,7 @@ class Input:
 
 class SymbolData:
     """"""
+
     _name: str
     _bench_data: t.Union[None, pd.DataFrame]
     _update_price_history: t.Callable[[], pd.DataFrame]
@@ -55,7 +55,7 @@ class SymbolData:
         broker_client,
         bench_symbol: t.Union[str, None] = None,
         freq_range=tdargs.freqs.day.range(tdargs.periods.y2),
-        enter_on_fresh_signal=False
+        enter_on_fresh_signal=False,
     ):
         self._broker_client = broker_client
         self._name = base_symbol
@@ -78,14 +78,14 @@ class SymbolData:
             SignalStatus.NEW_SHORT,
             SignalStatus.NEW_LONG,
             SignalStatus.NEW_CLOSE,
-            SignalStatus.CLOSE
+            SignalStatus.CLOSE,
         ]
         if self._ENTER_ON_FRESH_SIGNAL:
             valid_signals = [
                 SignalStatus.NEW_SHORT,
                 SignalStatus.NEW_LONG,
                 SignalStatus.NEW_CLOSE,
-                SignalStatus.CLOSE
+                SignalStatus.CLOSE,
             ]
         return valid_signals
 
@@ -117,7 +117,9 @@ class SymbolData:
         try:
             new_data = self._broker_client.price_history(
                 symbol=self._name,
-                freq_range=tdargs.freqs.m15.range(left_bound=datetime.utcnow() - timedelta(days=30))
+                freq_range=tdargs.freqs.m15.range(
+                    left_bound=datetime.utcnow() - timedelta(days=30)
+                ),
             )
         except (strategy_utils.EmptyDataError, strategy_utils.FaultReceivedError):
             new_data = None
@@ -154,18 +156,22 @@ class SymbolData:
         if self._cached_data is not None:
             current_bar = self._cached_data.iloc[-1].copy()
             try:
-                quantity = math.floor(current_bar.eqty_risk_lot * current_bar.signal * current_bar.size_remaining)
+                quantity = math.floor(
+                    current_bar.eqty_risk_lot
+                    * current_bar.signal
+                    * current_bar.size_remaining
+                )
             except ValueError:
                 quantity = 0
                 # assume the current bar is complete
             except AttributeError:
-                print('here')
+                print("here")
             order_data = self._broker_client.init_position(
                 symbol=self.name,
                 side=strategy_utils.Side(self._cached_data.signals.current),
                 quantity=quantity,
                 stop_value=current_bar.stop_loss_base,
-                data_row=current_bar
+                data_row=current_bar,
             )
 
         # back_test_utils.graph_regime_fc(
@@ -211,10 +217,7 @@ class SymbolManager:
         SignalStatus.NEW_LONG,
     ]
 
-    _VALID_EXIT = [
-        SignalStatus.CLOSE,
-        SignalStatus.NEW_CLOSE
-    ]
+    _VALID_EXIT = [SignalStatus.CLOSE, SignalStatus.NEW_CLOSE]
 
     def __init__(self, symbol_data: SymbolData):
         self.symbol_data = symbol_data
@@ -224,14 +227,13 @@ class SymbolManager:
         self.trade_state = self._init_trade_state()
         self.order_id = None
         self.stop_order_id = None
-        self._status = 'OKAY'
+        self._status = "OKAY"
         self._current_signal = None
         self._STATE_LOOKUP = {
-
             SymbolState.REST: self.rest,
             SymbolState.FILLED: self.filled,
             SymbolState.ORDER_PENDING: self.order_pending,
-            SymbolState.ERROR: self.error
+            SymbolState.ERROR: self.error,
         }
         self.entry_signals = []
         self.exit_signals = []
@@ -249,7 +251,9 @@ class SymbolManager:
         initial_trade_state = self.trade_state
         self.trade_state = self._STATE_LOOKUP[initial_trade_state]()
         if self.trade_state != initial_trade_state:
-            print(f'{self.symbol_data.name}: {initial_trade_state} -> {self.trade_state}')
+            print(
+                f"{self.symbol_data.name}: {initial_trade_state} -> {self.trade_state}"
+            )
 
     def _init_trade_state(self) -> SymbolState:
         """initialize current trade state of this symbol"""
@@ -257,7 +261,11 @@ class SymbolManager:
         state = SymbolState.REST
 
         # if there is an open position, it has passed the rest state already
-        if (position_data := self.account_data.positions.get(self.symbol_data.name, None)) is not None:
+        if (
+            position_data := self.account_data.positions.get(
+                self.symbol_data.name, None
+            )
+        ) is not None:
             # order_data = tda_access.OrderData(
             #     name=self.symbol_data.name,
             #     direction=position_data.side,
@@ -270,13 +278,20 @@ class SymbolManager:
         new_trade_state = SymbolState.FILLED
         current_signal = self.symbol_data.get_current_signal()
 
-        position = self._broker_client.account_info().positions.get(self.symbol_data.name, None)
+        position = self._broker_client.account_info().positions.get(
+            self.symbol_data.name, None
+        )
         if position is None:
             # if no position found for this symbol, stop loss was triggered or position closed externally
             new_trade_state = SymbolState.REST
-        elif current_signal is not None and (new_order := position.set_size(current_signal.qty)) is not None:
+        elif (
+            current_signal is not None
+            and (new_order := position.set_size(current_signal.qty)) is not None
+        ):
             # the signal has ended per the defined rules, close the remainder of the position
-            self.order_id, order_status = self._broker_client.place_order_spec(new_order)
+            self.order_id, order_status = self._broker_client.place_order_spec(
+                new_order
+            )
             if position.qty == 0:
                 # TODO retrieve stop order id from TDA order log if hard reset occurs
                 self._broker_client.cancel_order(self.stop_order_id)
@@ -304,8 +319,14 @@ class SymbolManager:
         if self._current_signal is not None:
             order_spec = self._current_signal.open_order()
             # no order template corresponding to the current signal val means trade signal not given
-            if self.symbol_data.cached_data.signals.status in SymbolManager._VALID_ENTRY and order_spec is not None:
-                self.order_id, order_status = self._broker_client.place_order_spec(order_spec)
+            if (
+                self.symbol_data.cached_data.signals.status
+                in SymbolManager._VALID_ENTRY
+                and order_spec is not None
+            ):
+                self.order_id, order_status = self._broker_client.place_order_spec(
+                    order_spec
+                )
                 self.entry_signals.append(self._current_signal)
                 # save order status for diagnostic purposes
                 new_trade_state = SymbolState.ORDER_PENDING
@@ -341,7 +362,7 @@ class SymbolManager:
 class AccountManager:
     managed: t.List[SymbolManager]
 
-    FILE_PATH = '.\\pkl_data\\account_manager.pkl'
+    FILE_PATH = ".\\pkl_data\\account_manager.pkl"
     """
     TODO:
         - dump MDF creation parameters for all symbols to json file
@@ -397,17 +418,19 @@ class AccountManager:
                 max_time = max(max_time, loop_time)
 
     def to_pickle(self):
-        with open(self.__class__.FILE_PATH, 'wb') as file_handler:
+        with open(self.__class__.FILE_PATH, "wb") as file_handler:
             pickle.dump(self, file_handler)
 
     @classmethod
     def load_from_pickle(cls) -> AccountManager:
-        with open(cls.FILE_PATH, 'rb') as file_handler:
+        with open(cls.FILE_PATH, "rb") as file_handler:
             account_manager = pickle.load(file_handler)
         return account_manager
 
 
-def init_states(active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]) -> _TradeStates:
+def init_states(
+    active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]
+) -> _TradeStates:
     """
     symbols not passed to AccountManager will not be used by the algorithm.
     Only symbols with data passed in to create AccountManager instance are
@@ -427,6 +450,5 @@ def init_states(active_symbols: t.List[str], symbol_data: t.Iterable[SymbolData]
     return _TradeStates(managed=managed, not_managed=active_symbols_local)
 
 
-if __name__ == '__main__':
-    print('done.')
-
+if __name__ == "__main__":
+    print("done.")
